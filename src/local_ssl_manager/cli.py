@@ -218,6 +218,7 @@ def create(domain: str, ip: str, base_dir: Optional[str] = None):
             f"To use this certificate in your web server, configure it with:\n"
             f"  - Certificate: {cert_info['cert_path']}\n"
             f"  - Private Key: {cert_info['key_path']}"
+            f"Alternatively, use the `ssl-manager export` command."
         )
 
     except ValueError as e:
