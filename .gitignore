@@ -5,6 +5,11 @@ __pycache__/
 *.so
 .Python
 
+# claude pyroject files
+claude_pyrojects.config
+claude_pyrojects.ignore
+claude_pyrojects.key
+
 # Distribution / packaging
 build/
 develop-eggs/

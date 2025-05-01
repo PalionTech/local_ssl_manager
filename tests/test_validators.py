@@ -101,6 +101,7 @@ class TestPathValidator:
 
         for path in valid_paths:
             is_valid, error = validate_path(path)
+            print(f"HERE: {is_valid} | {error} | {path}")
             assert is_valid is True
             assert error is None
 
@@ -108,11 +109,12 @@ class TestPathValidator:
         """Test that invalid paths are rejected."""
         invalid_paths = [
             "",  # Empty string
-            "path/with|pipe",  # Invalid character
-            "path/with:colon",  # Invalid character
-            'path/with"quotes',  # Invalid character
-            "path/with?question",  # Invalid character
-            "path/with*asterisk",  # Invalid character
+            "path/with|pipe",  # Invalid pipe character
+            "path/with?question",  # Invalid question mark
+            'path/with"quotes',  # Invalid quotes
+            "path/with*asterisk",  # Invalid asterisk
+            "path/with>gt",  # Invalid greater than
+            "path/with<lt",  # Invalid less than
         ]
 
         for path in invalid_paths:

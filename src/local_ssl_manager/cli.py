@@ -208,13 +208,8 @@ def create(domain: str, ip: str, base_dir: Optional[str] = None):
         manager = LocalSSLManager(Path(base_dir) if base_dir else None)
 
         # Create certificate with progress indicator
-        with Progress(
-            SpinnerColumn(),
-            TextColumn("[blue]Creating certificate for {domain}...[/blue]"),
-            transient=True,
-        ) as progress:
-            progress.add_task("create", total=None)
-            cert_info = manager.setup_local_domain(domain, ip)
+        print_info(f"Creating certificate for {domain}...")
+        cert_info = manager.setup_local_domain(domain, ip)
 
         print_success(f"Certificate for {domain} created successfully!")
         print_certificate_details(cert_info)

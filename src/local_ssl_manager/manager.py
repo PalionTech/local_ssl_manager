@@ -303,14 +303,9 @@ class LocalSSLManager:
             update_hosts_file(domain, ip_address)
 
         # Create multi-domain certificate
-        cert_path, key_path = create_multi_domain_certificate(
-            domains, self.certs_dir, name=name
-        )
-        domain_logger.info(f"Created SSL certificate at {cert_path}")
-
         try:
             cert_path, key_path = create_multi_domain_certificate(
-                domain, self.certs_dir, name=name
+                domains, self.certs_dir, name=name
             )
             domain_logger.info(f"Created SSL certificate at {cert_path}")
         except Exception as e:
