@@ -217,9 +217,9 @@ def extract_domains(text: str) -> List[str]:
     """
     domains = []
 
-    # Look for Subject Alternative Name section
+    # Look for Subject Alternative Name section - simplified pattern
     san_match = re.search(
-        r"X509v3 Subject Alternative Name:(?:\s+)(.+?)(?=\n\n|\n[^ ])", text, re.DOTALL
+        r"X509v3 Subject Alternative Name:[\s\n]+(.*?)(?=$|X509v3)", text, re.DOTALL
     )
     if san_match:
         san_text = san_match.group(1).strip()
@@ -229,7 +229,7 @@ def extract_domains(text: str) -> List[str]:
                 domains.append(entry.split("DNS:", 1)[1])
 
     # Also look for common name (CN) in subject
-    cn_match = re.search(r"CN\s*=\s*([^\s,]+)", text)
+    cn_match = re.search(r"Subject:.*?CN\s*=\s*([^\s,]+)", text, re.DOTALL)
     if cn_match and cn_match.group(1) not in domains:
         domains.append(cn_match.group(1))
 

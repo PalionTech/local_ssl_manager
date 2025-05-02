@@ -45,8 +45,8 @@ class LocalSSLManager:
 
         Args:
             base_dir: Optional base directory for storing certificates and configuration.
-                     If not provided, uses ~/.local-ssl-manager or the directory
-                     specified by the SSL_MANAGER_HOME environment variable.
+                    If not provided, uses ~/.local-ssl-manager or the directory
+                    specified by the SSL_MANAGER_HOME environment variable.
         """
         # Determine base directory
         if base_dir is None:
@@ -55,7 +55,16 @@ class LocalSSLManager:
             if env_dir:
                 self.base_dir = Path(env_dir)
             else:
-                self.base_dir = Path.home() / ".local-ssl-manager"
+                # If running as sudo, use the original user's home
+                sudo_user = os.environ.get("SUDO_USER")
+                if sudo_user and os.geteuid() == 0:  # Running as root via sudo
+                    import pwd
+
+                    # Get the original user's home directory
+                    user_home = Path(pwd.getpwnam(sudo_user).pw_dir)
+                    self.base_dir = user_home / ".local-ssl-manager"
+                else:
+                    self.base_dir = Path.home() / ".local-ssl-manager"
         else:
             self.base_dir = base_dir
 
@@ -303,14 +312,9 @@ class LocalSSLManager:
             update_hosts_file(domain, ip_address)
 
         # Create multi-domain certificate
-        cert_path, key_path = create_multi_domain_certificate(
-            domains, self.certs_dir, name=name
-        )
-        domain_logger.info(f"Created SSL certificate at {cert_path}")
-
         try:
             cert_path, key_path = create_multi_domain_certificate(
-                domain, self.certs_dir, name=name
+                domains, self.certs_dir, name=name
             )
             domain_logger.info(f"Created SSL certificate at {cert_path}")
         except Exception as e:

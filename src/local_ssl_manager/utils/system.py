@@ -10,6 +10,7 @@ across different operating systems (Windows, macOS, Linux), including:
 """
 
 import os
+import shutil
 import platform
 import subprocess
 import tempfile
@@ -83,13 +84,12 @@ def run_as_admin(args: List[str]) -> None:
             subprocess.run(cmd, check=True)
 
         elif system == "Darwin":  # macOS
-            # On macOS, use osascript to request admin privileges
-            cmd = [
-                "osascript",
-                "-e",
-                f'do shell script "{" ".join(args)}" with administrator privileges',
-            ]
+            # On macOS, use a more reliable approach that preserves the environment
+            # Instead of trying to restart with a module import, just use sudo directly
+            cmd = ["sudo"] + args
+            logger.info(f"Running command with sudo: {cmd}")
             subprocess.run(cmd, check=True)
+            sys.exit(0)  # Exit after successful sudo execution
 
         elif system == "Linux":
             # On Linux, use sudo
@@ -441,6 +441,7 @@ def setup_browser_trust() -> bool:
         return True
 
     except Exception as e:
+        print("FAILED")
         logger.error(f"Failed to set up browser trust: {e}")
         logger.info("Continuing without extended browser trust...")
         return False

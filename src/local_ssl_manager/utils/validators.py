@@ -6,6 +6,7 @@ used in certificate creation and management.
 """
 
 import re
+from pathlib import Path
 from typing import Tuple, Optional
 
 
@@ -48,8 +49,8 @@ def validate_domain(domain: str) -> Tuple[bool, Optional[str]]:
                 "Domain labels can only contain alphanumeric characters and hyphens",
             )
 
-    if not labels[-1] == "local":
-        return False, "Domains have to end with .local for local ssl management"
+    # if not labels[-1] == "local":
+    #    return False, "Domains have to end with .local for local ssl management"
 
     return True, None
 
@@ -89,15 +90,22 @@ def validate_path(path: str) -> Tuple[bool, Optional[str]]:
 
     Returns:
         A tuple of (is_valid, error_message)
-        If the path is valid, error_message will be None
     """
     if not path:
         return False, "Path cannot be empty"
 
-    # Check for invalid characters in the path
-    # This is a simplified check and varies by platform
-    invalid_chars = '<>:"|?*'
-    if any(c in path for c in invalid_chars):
-        return False, f"Path contains invalid characters: {invalid_chars}"
+    # Use built-in path validation functionality
+    try:
+        # Convert to a Path object to validate basic structure
+        path_obj = Path(path)
 
-    return True, None
+        # Check for characters that are universally problematic in paths
+        # These are the characters that are invalid on most filesystems
+        invalid_chars = '<>|*?"'
+        for char in invalid_chars:
+            if char in path:
+                return False, f"Path contains invalid character: '{char}'"
+
+        return True, None
+    except ValueError as e:
+        return False, f"Invalid path format: {str(e)}"

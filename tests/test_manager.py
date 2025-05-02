@@ -96,10 +96,10 @@ class TestLocalSSLManager:
         ):
             assert ssl_manager.check_domain_exists("nonexistent.local") is False
 
-    @mock.patch("local_ssl_manager.utils.system.setup_browser_trust")
-    @mock.patch("local_ssl_manager.utils.system.backup_hosts_file")
-    @mock.patch("local_ssl_manager.utils.system.update_hosts_file")
-    @mock.patch("local_ssl_manager.utils.certificate.create_certificate")
+    @mock.patch("local_ssl_manager.manager.setup_browser_trust")
+    @mock.patch("local_ssl_manager.manager.backup_hosts_file")
+    @mock.patch("local_ssl_manager.manager.update_hosts_file")
+    @mock.patch("local_ssl_manager.manager.create_certificate")
     def test_setup_local_domain(
         self,
         mock_create_cert,
@@ -184,7 +184,7 @@ class TestLocalSSLManager:
         assert domains[2][0] == "sub.example.com"
 
     @mock.patch("pathlib.Path.unlink")
-    @mock.patch("local_ssl_manager.utils.system.update_hosts_file")
+    @mock.patch("local_ssl_manager.manager.update_hosts_file")
     def test_delete_certificate(self, mock_update_hosts, mock_unlink, ssl_manager):
         """Test deleting a certificate with mocked dependencies."""
         # Create test metadata with a domain
