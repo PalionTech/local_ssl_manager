@@ -81,21 +81,40 @@ You can customize the location by setting the `SSL_MANAGER_HOME` environment var
 4. Updates your hosts file to point the domains to 127.0.0.1
 5. Maintains metadata about your certificates for easy management
 
-## Development
+## Contributing
 
-Clone the repository and install in development mode:
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-```bash
-git clone https://github.com/yourusername/local-ssl-manager.git
-cd local-ssl-manager
-pip install -e ".[dev]"
-```
+### Development Setup
 
-Run tests:
+1. Clone the repository
+2. Install development dependencies:
 
-```bash
-pytest
-```
+   ```bash
+   pip install -e ".[dev]"
+   ```
+
+3. Install pre-commit hooks:
+
+   ```bash
+   pip install pre-commit
+   pre-commit install
+   ```
+
+## Release Process
+
+This project uses semantic versioning and releases from tags.
+
+1. Update the version in `pyproject.toml`
+2. Merge changes to main branch
+3. Create and push a tag:
+
+   ```bash
+   git tag -a v0.1.0 -m "Release description"
+   git push origin v0.1.0
+   ```
+
+4. The package will automatically build and publish to PyPI via GitHub Actions
 
 ## License
 
