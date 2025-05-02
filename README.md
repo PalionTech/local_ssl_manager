@@ -103,19 +103,59 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## Release Process
 
-This project uses semantic versioning and releases from tags.
+This project uses semantic versioning and releases from tags. The package is automatically built and published to PyPI when a new version tag is pushed using GitHub Actions.
 
-1. Update the version in `pyproject.toml`
-2. Merge changes to main branch
-3. Create and push a tag:
+### Using the Deployment Script (Recommended)
+
+The easiest way to deploy a new version is to use the included deployment script:
+
+1. Ensure you're on the main branch with a clean working directory
+2. Run the deployment script:
 
    ```bash
-   git tag -a v0.1.0 -m "Release description"
-   git push origin v0.1.0
+   # Option 1: Interactive mode (will prompt for version and tag message)
+   python deploy.py
+
+   # Option 2: Non-interactive mode
+   python deploy.py --version 0.1.1 --message "Add new features X and Y"
    ```
 
-4. The package will automatically build and publish to PyPI via GitHub Actions
+3. The script will:
+   - Update the version in pyproject.toml
+   - Commit the change
+   - Create and push a Git tag
+   - Push changes to GitHub
+   - GitHub Actions will automatically build and publish to PyPI
 
-## License
+### Manual Deployment
 
-MIT
+If you prefer to deploy manually:
+
+1. Update the version in `pyproject.toml`
+2. Commit the change:
+
+   ```bash
+   git commit -am "Bump version to 0.1.1"
+   ```
+
+3. Create a tag with a message:
+
+   ```bash
+   git tag -a v0.1.1 -m "Version 0.1.1: Add new features X and Y"
+   ```
+
+4. Push the changes and tag:
+
+   ```bash
+   git push origin main
+   git push origin v0.1.1
+   ```
+
+5. GitHub Actions will detect the new tag and publish to PyPI
+
+### Verifying Deployment
+
+After pushing the tag:
+
+1. Check the GitHub Actions workflow at: `https://github.com/PalionTech/local-ssl-manager/actions`
+2. Verify the new version appears on PyPI: `https://pypi.org/project/local-ssl-manager/`
