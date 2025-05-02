@@ -5,7 +5,7 @@ __pycache__/
 *.so
 .Python
 
-.github
+.github/DEPLOYMENT.md
 
 claude_pyrojects.config
 claude_pyrojects.ignore
