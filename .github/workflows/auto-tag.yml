@@ -9,7 +9,7 @@ on:
 
 permissions:
   contents: write
-
+  
 jobs:
   tag-version:
     runs-on: ubuntu-latest
