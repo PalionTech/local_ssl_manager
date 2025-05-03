@@ -387,11 +387,20 @@ def finalize_release(no_verify: bool = False) -> None:
     # Automatically commit any pending changes (like CHANGELOG updates)
     if not git_is_clean():
         print("\nDetected pending changes, automatically committing them...")
-        run_command(
+        result = run_command(
             f'git add . && git commit -m "Update CHANGELOG and finalize version {version}"',
             "Failed to commit pending changes",
             no_verify=no_verify,
         )
+        if not result and not git_is_clean():
+            print(
+                "⛔ Pre-commit hooks or other commit issues need to be fixed before continuing."
+            )
+            print(
+                """Please fix the issues, commit your changes manually,
+                and then run this command again."""
+            )
+            sys.exit(1)
         # Push the changes to the release branch
         run_command(
             f"git push origin {current_branch}",
