@@ -364,15 +364,13 @@ def finalize_release(no_verify: bool = False) -> None:
     """
     # Check if we're on a release branch
     current_branch = get_current_branch()
-    if not current_branch.startswith("release/"):
+    if not current_branch.startswith("release/") and not current_branch.startswith(
+        "hotfix/"
+    ):
         print(
-            f"Error: You must be on a release branch to finalize (current: {current_branch})"
+            f"""Error: You must be on a release or
+            hotfix branch to finalize (current: {current_branch})"""
         )
-        sys.exit(1)
-
-    # Make sure the working directory is clean
-    if not git_is_clean():
-        print("Error: Working directory is not clean. Commit or stash changes first.")
         sys.exit(1)
 
     # Extract version from branch name or from files
@@ -385,6 +383,21 @@ def finalize_release(no_verify: bool = False) -> None:
 
     if not validate_version(version):
         sys.exit(1)
+
+    # Automatically commit any pending changes (like CHANGELOG updates)
+    if not git_is_clean():
+        print("\nDetected pending changes, automatically committing them...")
+        run_command(
+            f'git add . && git commit -m "Update CHANGELOG and finalize version {version}"',
+            "Failed to commit pending changes",
+            no_verify=no_verify,
+        )
+        # Push the changes to the release branch
+        run_command(
+            f"git push origin {current_branch}",
+            f"Failed to push changes to {current_branch}",
+        )
+        print("✅ Committed and pushed pending changes")
 
     # Make sure release branch is up to date
     run_command(f"git pull origin {current_branch}", "Failed to pull latest changes")
