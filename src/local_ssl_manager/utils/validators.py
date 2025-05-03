@@ -7,7 +7,7 @@ used in certificate creation and management.
 
 import re
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
 
 def validate_domain(domain: str) -> Tuple[bool, Optional[str]]:
@@ -29,7 +29,8 @@ def validate_domain(domain: str) -> Tuple[bool, Optional[str]]:
 
     # Match most common domain patterns
     # This handles standard domains like example.com, test.local, etc.
-    pattern = r"^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$"
+    pattern = r"""^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)
+    +[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$"""
 
     if not re.match(pattern, domain):
         return False, "Invalid domain name format"
@@ -97,7 +98,7 @@ def validate_path(path: str) -> Tuple[bool, Optional[str]]:
     # Use built-in path validation functionality
     try:
         # Convert to a Path object to validate basic structure
-        path_obj = Path(path)
+        Path(path)
 
         # Check for characters that are universally problematic in paths
         # These are the characters that are invalid on most filesystems
