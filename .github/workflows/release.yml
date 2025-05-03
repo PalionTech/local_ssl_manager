@@ -1,42 +1,13 @@
-name: Release Pipeline
+name: Release to PyPI
 
 on:
   push:
-    branches: [main]
     tags:
       - "v*"
-  pull_request:
-    branches: [main, develop]
-    types: [opened, synchronize, reopened, closed]
 
 jobs:
-  test:
-    name: Test Package
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.8", "3.9", "3.10", "3.11"]
-
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e ".[dev]"
-      - name: Run tests
-        run: |
-          pytest
-
-  build:
-    name: Build Package
-    #needs: test
+  deploy:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python
@@ -46,60 +17,20 @@ jobs:
       - name: Install build dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install build wheel twine
+          pip install build twine
       - name: Build package
-        run: |
-          python -m build
+        run: python -m build
       - name: Check package
-        run: |
-          twine check dist/*
-      - name: Store built package
-        uses: actions/upload-artifact@v3
-        with:
-          name: dist
-          path: dist/
-
-  deploy:
-    name: Deploy to PyPI
-    needs: build
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - name: Download built package
-        uses: actions/download-artifact@v3
-        with:
-          name: dist
-          path: dist/
+        run: twine check dist/*
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           user: __token__
           password: ${{ secrets.PYPI_API_TOKEN }}
           skip_existing: true
-          verbose: true
-
-  create-github-release:
-    name: Create GitHub Release
-    needs: deploy
-    runs-on: ubuntu-latest
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-      - name: Get Changelog Entry
-        id: changelog
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          CHANGELOG_CONTENT=$(awk "/## \\[$VERSION\\]/,/## \\[v/" CHANGELOG.md | sed '/## \[v/d')
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          echo "$CHANGELOG_CONTENT" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-      - name: Create Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          body: ${{ steps.changelog.outputs.changelog }}
-          draft: false
-          prerelease: false
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

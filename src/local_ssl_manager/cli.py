@@ -7,21 +7,20 @@ It uses Click for command parsing and Rich for terminal output formatting.
 
 import sys
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Any, Dict, List, Optional
 
 import click
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.prompt import Confirm
-from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.prompt import Confirm
+from rich.table import Table
 
 from . import __version__
 from .manager import LocalSSLManager
-from .utils.system import check_admin_privileges, run_as_admin
 from .ui.domain_selector import show_domain_selector
-
+from .utils.system import check_admin_privileges, run_as_admin
 
 # Create console for rich output
 console = Console()
@@ -141,7 +140,7 @@ def print_certificate_details(cert_info: Dict[str, str]) -> None:
         panel_content.append(f"[bold]Log Path:[/bold] {cert_info['log_path']}")
 
     if cert_info.get("imported", False):
-        panel_content.append(f"[bold]Imported:[/bold] Yes")
+        panel_content.append("[bold]Imported:[/bold] Yes")
 
     if "status" in cert_info:
         status_style = "green" if cert_info["status"] == "valid" else "red"
@@ -285,7 +284,7 @@ def create_multi(
             f"[bold]Certificate Path:[/bold] {cert_info['cert_path']}",
             f"[bold]Key Path:[/bold] {cert_info['key_path']}",
             f"[bold]IP Address:[/bold] {cert_info['ip_address']}",
-            f"[bold]Domains:[/bold]",
+            "[bold]Domains:[/bold]",
         ]
 
         for domain in cert_info["domains"]:
@@ -442,7 +441,7 @@ def export(domain: str, output: str, base_dir: Optional[str]):
             progress.add_task("export", total=None)
             cert_path, key_path = manager.export_certificate(domain, Path(output))
 
-        print_success(f"Certificate exported successfully!")
+        print_success("Certificate exported successfully!")
         print_info(
             f"Certificate exported to:\n"
             f"  - Certificate: {cert_path}\n"

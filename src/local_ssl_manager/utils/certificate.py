@@ -7,10 +7,10 @@ This module provides functions for:
 - Getting certificate information
 """
 
-import subprocess
 import re
+import subprocess
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from ..logging import get_logger
 from .system import check_command_exists, install_mkcert
@@ -47,7 +47,7 @@ def create_certificate(domain: str, cert_dir: Path) -> Tuple[Path, Path]:
         logger.info(f"Creating certificate for {domain}...")
 
         # Create the certificate using mkcert
-        result = subprocess.run(
+        subprocess.run(
             [
                 "mkcert",
                 "-cert-file",
@@ -122,7 +122,7 @@ def create_multi_domain_certificate(
         cmd.extend(domains)
 
         # Create the certificate
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+        subprocess.run(cmd, check=True, capture_output=True, text=True)
 
         # Check if certificate files were actually created
         if not cert_path.exists() or not key_path.exists():

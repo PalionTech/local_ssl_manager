@@ -10,13 +10,13 @@ import os
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 from .logging import LoggingManager
 from .utils.certificate import (
+    check_certificate_validity,
     create_certificate,
     create_multi_domain_certificate,
-    check_certificate_validity,
 )
 from .utils.system import (
     backup_hosts_file,
@@ -201,7 +201,7 @@ class LocalSSLManager:
         try:
             cert_path, key_path = create_certificate(domain, self.certs_dir)
             domain_logger.info(f"Created SSL certificate at {cert_path}")
-        except Exception as e:
+        except Exception:
             # Rollback hosts file change if certificate creation fails
             try:
                 update_hosts_file(domain, ip_address, remove=True)
@@ -233,7 +233,7 @@ class LocalSSLManager:
         domain_logger.info("Updated certificate metadata")
 
         # Log completion
-        domain_logger.info(f"Domain setup completed successfully")
+        domain_logger.info("Domain setup completed successfully")
         self.logger.info(f"Domain {domain} setup complete")
 
         # Return certificate information
@@ -317,7 +317,7 @@ class LocalSSLManager:
                 domains, self.certs_dir, name=name
             )
             domain_logger.info(f"Created SSL certificate at {cert_path}")
-        except Exception as e:
+        except Exception:
             # Rollback hosts file change if certificate creation fails
             try:
                 for domain in domains:
@@ -675,7 +675,7 @@ class LocalSSLManager:
         domain_logger.info("Updated certificate metadata")
 
         # Log completion
-        domain_logger.info(f"Certificate import completed successfully")
+        domain_logger.info("Certificate import completed successfully")
         self.logger.info(f"Imported certificate for {domain}")
 
         # Return certificate information
