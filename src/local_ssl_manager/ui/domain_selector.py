@@ -8,7 +8,7 @@ text-based interfaces.
 
 import platform
 from datetime import datetime
-from typing import List, Tuple, Optional
+from typing import List, Optional, Tuple
 
 # Import rich for text-based UI fallback
 from rich.console import Console

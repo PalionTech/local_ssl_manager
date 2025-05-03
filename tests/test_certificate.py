@@ -2,18 +2,16 @@
 Tests for the certificate utility functions.
 """
 
-import os
-from pathlib import Path
 from unittest import mock
 
 import pytest
 
 from local_ssl_manager.utils.certificate import (
+    check_certificate_validity,
     create_certificate,
     create_multi_domain_certificate,
-    check_certificate_validity,
-    extract_field,
     extract_domains,
+    extract_field,
     get_certificate_expiry,
 )
 
@@ -133,7 +131,7 @@ class TestCertificateUtils:
                 Subject Public Key Info:
                     Public Key Algorithm: rsaEncryption
                 X509v3 extensions:
-                    X509v3 Subject Alternative Name: 
+                    X509v3 Subject Alternative Name:
                         DNS:test.local, DNS:*.test.local
         """
 
@@ -168,7 +166,7 @@ class TestCertificateUtils:
         """Test extracting domains from certificate text."""
         text = """
         Subject: CN=test.local
-        X509v3 Subject Alternative Name: 
+        X509v3 Subject Alternative Name:
             DNS:test.local, DNS:*.test.local, DNS:another.local
         """
 

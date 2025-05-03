@@ -10,9 +10,9 @@ across different operating systems (Windows, macOS, Linux), including:
 """
 
 import os
-import shutil
 import platform
 import subprocess
+import sys
 import tempfile
 from pathlib import Path
 from typing import List
@@ -445,7 +445,3 @@ def setup_browser_trust() -> bool:
         logger.error(f"Failed to set up browser trust: {e}")
         logger.info("Continuing without extended browser trust...")
         return False
-
-
-# Import sys at the top if it's used in the module
-import sys

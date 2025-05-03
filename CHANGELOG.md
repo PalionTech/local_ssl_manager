@@ -1,5 +1,17 @@
 # Changelog
 
+## [v0.1.6] - 2025-05-03
+
+### Added
+
+- bump_version.py
+
+### Changed
+
+- gitflow_deploy.py (removed)
+
+### Fixed
+
 ## [v0.1.5] - 2025-05-03
 
 ### Added
