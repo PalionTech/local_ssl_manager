@@ -90,21 +90,28 @@ def bump_version(version_type="patch", specific_version=None):
 
     print(f"Created and switched to branch: {release_branch}")
 
-    # Update pyproject.toml
+    # Update pyproject.toml - Fix the regex substitution here
     with open("pyproject.toml", "r") as f:
         content = f.read()
-    updated = re.sub(r'(version\s*=\s*")([^"]+)(")', f"\\1{new_version}\\3", content)
+
+    # Use a different approach for substitution to avoid the regex error
+    pattern = r'version\s*=\s*"[^"]+"'
+    replacement = f'version = "{new_version}"'
+    updated = re.sub(pattern, replacement, content)
+
     with open("pyproject.toml", "w") as f:
         f.write(updated)
 
-    # Update __init__.py if it exists
+    # Update __init__.py if it exists - Also fix the regex here
     init_path = Path("src/local_ssl_manager/__init__.py")
     if init_path.exists():
         with open(init_path, "r") as f:
             content = f.read()
-        updated = re.sub(
-            r'(__version__\s*=\s*")([^"]+)(")', f"\\1{new_version}\\3", content
-        )
+
+        pattern = r'__version__\s*=\s*"[^"]+"'
+        replacement = f'__version__ = "{new_version}"'
+        updated = re.sub(pattern, replacement, content)
+
         with open(init_path, "w") as f:
             f.write(updated)
 
