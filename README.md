@@ -83,4 +83,4 @@ You can customize the location by setting the `SSL_MANAGER_HOME` environment var
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request!
+Contributions are welcome! Please feel free to submit a Pull Request.
