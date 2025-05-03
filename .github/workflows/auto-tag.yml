@@ -17,8 +17,9 @@ jobs:
       - name: Get version from pyproject.toml
         id: get_version
         run: |
-          VERSION=$(grep 'version' pyproject.toml | sed -E 's/.*"([^"]+)".*/\1/')
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          VERSION=$(grep -E 'version = "[0-9]+\.[0-9]+\.[0-9]+"' pyproject.toml | head -1 | sed -E 's/.*"([0-9]+\.[0-9]+\.[0-9]+)".*/\1/')
+          echo "VERSION=${VERSION}" >> $GITHUB_ENV
+          echo "Found version: ${VERSION}"
       - name: Check if tag exists
         id: check_tag
         run: |
