@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-ssl-manager"
-version = "0.1.2"
+version = "0.1.4"
 description = "Manage local SSL certificates for development environments"
 authors = [{name = "Maximilian Bertram", email = "contact@maxbertram.com"}]
 readme = "README.md"
@@ -38,6 +38,7 @@ dev = [
     "isort>=5.10.1",
     "flake8>=4.0.1",
     "mypy>=0.942",
+    "pre-commit>=2.20.0",
 ]
 docs = [
     "mkdocs>=1.3.0",

@@ -1,11 +1,10 @@
 """
-Local SSL Manager - Easily create and manage SSL certificates for local development.
+Local SSL Manager - Create and manage SSL certificates for local development.
 
-This package provides tools to create self-signed SSL certificates for local domains,
-update hosts files, and configure browser trust.
+Tools for self-signed certificates, hosts file updates, and browser trust setup.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.1.4"
 
 from .manager import LocalSSLManager
 
