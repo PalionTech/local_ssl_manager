@@ -1,13 +1,10 @@
 # Changelog
 
-
 ## [v0.1.7] - 2025-05-03
 
-### Added
+### Comment
 
-### Changed
-
-### Fixed
+- Dummy update for testing
 
 ## [v0.1.6] - 2025-05-03
 
