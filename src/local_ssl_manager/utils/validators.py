@@ -29,10 +29,12 @@ def validate_domain(domain: str) -> Tuple[bool, Optional[str]]:
 
     # Match most common domain patterns
     # This handles standard domains like example.com, test.local, etc.
-    pattern = r"""^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)
-    +[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$"""
+    pattern = r"""
+    ^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)
+    +[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?$
+    """
 
-    if not re.match(pattern, domain):
+    if not re.match(pattern, domain, re.VERBOSE):
         return False, "Invalid domain name format"
 
     # Check each label (parts between dots)
