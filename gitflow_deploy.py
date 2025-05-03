@@ -12,7 +12,7 @@ import subprocess
 import sys
 from enum import Enum
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 
 
 class DeploymentAction(Enum):
@@ -20,8 +20,21 @@ class DeploymentAction(Enum):
 
     START_RELEASE = "start-release"
     FINALIZE_RELEASE = "finalize-release"
+    CONTINUE_RELEASE = "continue-release"
     HOTFIX = "hotfix"
     DEPLOY = "deploy"
+
+
+class GitFlowState(Enum):
+    """States during the release process."""
+
+    INITIAL = "initial"
+    MAIN_MERGED = "main_merged"
+    MAIN_PUSHED = "main_pushed"
+    TAG_CREATED = "tag_created"
+    TAG_PUSHED = "tag_pushed"
+    DEVELOP_MERGED = "develop_merged"
+    COMPLETED = "completed"
 
 
 def get_current_version() -> str:
@@ -120,14 +133,21 @@ def run_command(
     if no_verify and "git commit" in command:
         command = command.replace("git commit", "git commit --no-verify")
 
-    result = subprocess.run(
-        command, shell=True, capture_output=capture_output, text=True
-    )
-    if check and result.returncode != 0:
-        print(f"Error: {error_message}")
-        print(f"Command output: {result.stderr}")
-        sys.exit(1)
-    return result.stdout.strip() if capture_output else ""
+    try:
+        result = subprocess.run(
+            command, shell=True, capture_output=capture_output, text=True
+        )
+        if check and result.returncode != 0:
+            print(f"Error: {error_message}")
+            print(f"Command output: {result.stderr}")
+            return ""
+        return result.stdout.strip() if capture_output else ""
+    except subprocess.SubprocessError as e:
+        if check:
+            print(f"Error: {error_message}")
+            print(f"Command error: {str(e)}")
+            sys.exit(1)
+        return ""
 
 
 def git_is_clean() -> bool:
@@ -141,6 +161,35 @@ def git_is_clean() -> bool:
 def get_current_branch() -> str:
     """Get the name of the current git branch."""
     return run_command("git branch --show-current", "Failed to get current branch")
+
+
+def save_state(state: Dict[str, Any], state_file: Optional[Path] = None) -> None:
+    """Save GitFlow state to a file."""
+    if state_file is None:
+        state_file = Path(".gitflow_state.txt")
+
+    content = "\n".join([f"{k}={v}" for k, v in state.items()])
+    with open(state_file, "w") as f:
+        f.write(content)
+    print(f"Saved deployment state to {state_file}")
+
+
+def load_state(state_file: Optional[Path] = None) -> Dict[str, Any]:
+    """Load GitFlow state from a file."""
+    if state_file is None:
+        state_file = Path(".gitflow_state.txt")
+
+    if not state_file.exists():
+        return {}
+
+    state = {}
+    with open(state_file, "r") as f:
+        for line in f.readlines():
+            if "=" in line:
+                key, value = line.strip().split("=", 1)
+                state[key] = value
+
+    return state
 
 
 def update_changelog(version: str, message: Optional[str] = None) -> None:
@@ -200,8 +249,8 @@ def start_release(
     current_branch = get_current_branch()
     if current_branch != "develop":
         print(
-            f"""Error: You must be on the develop
-            branch to start a release (current: {current_branch})"""
+            f"""Error: You must be on the develop branch
+            to start a release (current: {current_branch})"""
         )
         sys.exit(1)
 
@@ -251,6 +300,61 @@ def start_release(
     print("3. Run 'python gitflow_deploy.py finalize-release' when ready to finalize")
 
 
+def attempt_merge(
+    source_branch: str,
+    target_branch: str,
+    message: str,
+    no_verify: bool = False,
+) -> bool:
+    """
+    Attempt to merge source branch into target branch, handling conflicts gracefully.
+
+    Args:
+        source_branch: Branch to merge from
+        target_branch: Branch to merge to
+        message: Commit message for the merge
+        no_verify: Skip pre-commit hooks
+
+    Returns:
+        True if merge succeeded, False if conflicts occurred
+    """
+    # Make sure we're on the target branch
+    current_branch = get_current_branch()
+    if current_branch != target_branch:
+        run_command(
+            f"git checkout {target_branch}", f"Failed to checkout {target_branch}"
+        )
+
+    # Make sure target branch is up to date
+    run_command(
+        f"git pull origin {target_branch}",
+        f"Failed to pull latest changes from {target_branch}",
+    )
+
+    # Attempt the merge
+    merge_command = f'git merge --no-ff {source_branch} -m "{message}"'
+    if no_verify:
+        merge_command = merge_command.replace("git merge", "git merge --no-verify")
+
+    result = subprocess.run(merge_command, shell=True, capture_output=True, text=True)
+
+    # Check for conflicts
+    if result.returncode != 0:
+        if "Automatic merge failed" in result.stderr or "CONFLICT" in result.stderr:
+            print(
+                f"\n⚠️ Merge conflicts detected when merging {source_branch} into {target_branch}!"
+            )
+            print("Please resolve the conflicts manually, then commit the changes.")
+            return False
+        else:
+            # Some other error
+            print(f"Error: Failed to merge {source_branch} into {target_branch}")
+            print(f"Command output: {result.stderr}")
+            sys.exit(1)
+
+    return True
+
+
 def finalize_release(no_verify: bool = False) -> None:
     """
     Finalize a release by merging into main and develop.
@@ -260,12 +364,9 @@ def finalize_release(no_verify: bool = False) -> None:
     """
     # Check if we're on a release branch
     current_branch = get_current_branch()
-    if not current_branch.startswith("release/") and not current_branch.startswith(
-        "hotfix/"
-    ):
+    if not current_branch.startswith("release/"):
         print(
-            f"""Error: You must be on a release or hotfix
-            branch to finalize (current: {current_branch})"""
+            f"Error: You must be on a release branch to finalize (current: {current_branch})"
         )
         sys.exit(1)
 
@@ -288,54 +389,130 @@ def finalize_release(no_verify: bool = False) -> None:
     # Make sure release branch is up to date
     run_command(f"git pull origin {current_branch}", "Failed to pull latest changes")
 
-    # Configure git pull strategy if not set
-    try:
-        run_command(
-            "git config pull.rebase false",
-            "Failed to configure git pull strategy",
-            check=False,
-        )
-    except Exception:
-        pass  # Ignore if it fails
+    # Initialize state
+    state = {
+        "release_branch": current_branch,
+        "version": version,
+        "state": GitFlowState.INITIAL.value,
+    }
+    save_state(state)
 
-    # Merge to main
-    run_command("git checkout main", "Failed to checkout main branch")
-    run_command("git pull origin main", "Failed to pull latest changes from main")
-    run_command(
-        f'git merge --no-ff {current_branch} -m "Merge {current_branch} into main"',
-        f"Failed to merge {current_branch} into main",
-        no_verify=no_verify,
+    # Step 1: Merge to main
+    print("\nStep 1: Merging release branch to main...")
+    merge_success = attempt_merge(
+        current_branch,
+        "main",
+        f"Merge {current_branch} into main",
+        no_verify,
     )
+
+    if not merge_success:
+        print("\n🛑 Merge conflicts detected!")
+        print("Please follow these steps to resolve the conflicts:")
+        print("1. Resolve the conflicts in the affected files")
+        print("2. Stage the resolved files with 'git add <file>'")
+        print("3. Commit the changes with 'git commit'")
+        print("4. Run 'python gitflow_deploy.py continue-release --target=main'")
+        sys.exit(1)
+
+    # Update state - main merged successfully
+    state["state"] = GitFlowState.MAIN_MERGED.value
+    save_state(state)
+
+    # Push changes to main
+    push_result = run_command("git push origin main", "Failed to push main to remote")
+    if not push_result:
+        print("\n🛑 Failed to push to main!")
+        print("Please resolve any issues and then run:")
+        print("'python gitflow_deploy.py continue-release --target=main-push'")
+        sys.exit(1)
+
+    # Update state - main pushed successfully
+    state["state"] = GitFlowState.MAIN_PUSHED.value
+    save_state(state)
 
     # Create version tag
     tag_name = f"v{version}"
-    run_command(f'git tag -a {tag_name} -m "Version {version}"', "Failed to create tag")
-
-    # Push main and tag
-    run_command("git push origin main", "Failed to push main to remote")
-    run_command(f"git push origin {tag_name}", "Failed to push tag to remote")
-
-    # Merge back to develop
-    run_command("git checkout develop", "Failed to checkout develop branch")
-    run_command("git pull origin develop", "Failed to pull latest changes from develop")
-    run_command(
-        f'git merge --no-ff {current_branch} -m "Merge {current_branch} back into develop"',
-        f"Failed to merge {current_branch} into develop",
-        no_verify=no_verify,
+    tag_result = run_command(
+        f'git tag -a {tag_name} -m "Version {version}"', "Failed to create tag"
     )
-    run_command("git push origin develop", "Failed to push develop to remote")
 
-    # Delete release branch
+    if (
+        not tag_result and tag_result != ""
+    ):  # Empty string is valid for commands with no output
+        print("\n🛑 Failed to create version tag!")
+        print("Please resolve any issues and then run:")
+        print("'python gitflow_deploy.py continue-release --target=tag'")
+        sys.exit(1)
+
+    # Update state - tag created successfully
+    state["state"] = GitFlowState.TAG_CREATED.value
+    save_state(state)
+
+    # Push tag
+    tag_push_result = run_command(
+        f"git push origin {tag_name}", "Failed to push tag to remote"
+    )
+
+    if not tag_push_result and tag_push_result != "":
+        print("\n🛑 Failed to push tag!")
+        print("Please resolve any issues and then run:")
+        print("'python gitflow_deploy.py continue-release --target=tag-push'")
+        sys.exit(1)
+
+    # Update state - tag pushed successfully
+    state["state"] = GitFlowState.TAG_PUSHED.value
+    save_state(state)
+
+    # Step 2: Merge to develop
+    print("\nStep 2: Merging release branch to develop...")
+    develop_merge_success = attempt_merge(
+        current_branch,
+        "develop",
+        f"Merge {current_branch} back into develop",
+        no_verify,
+    )
+
+    if not develop_merge_success:
+        print("\n🛑 Merge conflicts detected when merging to develop!")
+        print("Please follow these steps to resolve the conflicts:")
+        print("1. Resolve the conflicts in the affected files")
+        print("2. Stage the resolved files with 'git add <file>'")
+        print("3. Commit the changes with 'git commit'")
+        print("4. Run 'python gitflow_deploy.py continue-release --target=develop'")
+        sys.exit(1)
+
+    # Update state - develop merged successfully
+    state["state"] = GitFlowState.DEVELOP_MERGED.value
+    save_state(state)
+
+    # Push develop
+    develop_push_result = run_command(
+        "git push origin develop", "Failed to push develop to remote"
+    )
+
+    if not develop_push_result and develop_push_result != "":
+        print("\n🛑 Failed to push develop!")
+        print("Please resolve any issues and then run:")
+        print("'python gitflow_deploy.py continue-release --target=develop-push'")
+        sys.exit(1)
+
+    # Step 3: Delete release branch
+    print("\nStep 3: Cleaning up release branch...")
     run_command(
-        "git branch -d " + current_branch,
+        f"git branch -d {current_branch}",
         "Failed to delete local release branch",
         check=False,
     )
     run_command(
-        "git push origin -d " + current_branch,
+        f"git push origin -d {current_branch}",
         "Failed to delete remote release branch",
         check=False,
     )
+
+    # Update state - completed
+    state["state"] = GitFlowState.COMPLETED.value
+    save_state(state)
 
     print(f"\n✅ Release v{version} finalized successfully!")
     print(f"Version tag {tag_name} created and pushed.")
@@ -352,6 +529,312 @@ def finalize_release(no_verify: bool = False) -> None:
         if repo_url.endswith(".git"):
             repo_url = repo_url[:-4]
     print(f"{repo_url}/actions")
+
+    # Remove state file after successful completion
+    try:
+        Path(".gitflow_state.txt").unlink(missing_ok=True)
+    except Exception:
+        print("Error unlinking .gitflow_state.txt")
+        pass
+
+
+def continue_release(target: str, no_verify: bool = False) -> None:
+    """
+    Continue a release process after resolving conflicts or issues.
+
+    Args:
+        target: The target step to continue from
+        no_verify: Skip pre-commit hooks when committing
+    """
+    # Load saved state
+    state = load_state()
+    if not state:
+        print(
+            "Error: No saved state found. Please start the release process from the beginning."
+        )
+        sys.exit(1)
+
+    release_branch = state.get("release_branch", "")
+    version = state.get("version", "")
+
+    if not release_branch or not version:
+        print("Error: Invalid state file. Missing critical information.")
+        sys.exit(1)
+
+    print(
+        f"Continuing release process for version {version} from branch {release_branch}"
+    )
+
+    # Make sure the working directory is clean
+    if not git_is_clean() and target not in ["main", "develop"]:
+        print("Error: Working directory is not clean. Commit or stash changes first.")
+        sys.exit(1)
+
+    # Continue based on target
+    if target == "main":
+        # We're continuing after resolving conflicts in main
+        current_branch = get_current_branch()
+        if current_branch != "main":
+            print(
+                f"Error: Expected to be on main branch, but current branch is {current_branch}"
+            )
+            sys.exit(1)
+
+        # First commit any pending changes
+        if not git_is_clean():
+            print("Committing resolved conflicts...")
+            run_command(
+                "git commit --no-edit",
+                "Failed to commit resolved conflicts",
+                no_verify=no_verify,
+            )
+
+        # Now push to main
+        run_command("git push origin main", "Failed to push main to remote")
+
+        # Update state
+        state["state"] = GitFlowState.MAIN_PUSHED.value
+        save_state(state)
+
+        # Create and push tag
+        tag_name = f"v{version}"
+        run_command(
+            f'git tag -a {tag_name} -m "Version {version}"', "Failed to create tag"
+        )
+        run_command(f"git push origin {tag_name}", "Failed to push tag to remote")
+
+        # Update state
+        state["state"] = GitFlowState.TAG_PUSHED.value
+        save_state(state)
+
+        # Merge to develop
+        print("\nMerging release branch to develop...")
+        develop_merge_success = attempt_merge(
+            release_branch,
+            "develop",
+            f"Merge {release_branch} back into develop",
+            no_verify,
+        )
+
+        if not develop_merge_success:
+            print("\n🛑 Merge conflicts detected when merging to develop!")
+            print("Please follow these steps to resolve the conflicts:")
+            print("1. Resolve the conflicts in the affected files")
+            print("2. Stage the resolved files with 'git add <file>'")
+            print("3. Commit the changes with 'git commit'")
+            print("4. Run 'python gitflow_deploy.py continue-release --target=develop'")
+            sys.exit(1)
+
+        # Push develop
+        run_command("git push origin develop", "Failed to push develop to remote")
+
+        # Update state
+        state["state"] = GitFlowState.DEVELOP_MERGED.value
+        save_state(state)
+
+        # Cleanup
+        complete_release_process(release_branch, version, state)
+
+    elif target == "develop":
+        # We're continuing after resolving conflicts in develop
+        current_branch = get_current_branch()
+        if current_branch != "develop":
+            print(
+                f"Error: Expected to be on develop branch, but current branch is {current_branch}"
+            )
+            sys.exit(1)
+
+        # First commit any pending changes
+        if not git_is_clean():
+            print("Committing resolved conflicts...")
+            run_command(
+                "git commit --no-edit",
+                "Failed to commit resolved conflicts",
+                no_verify=no_verify,
+            )
+
+        # Now push to develop
+        run_command("git push origin develop", "Failed to push develop to remote")
+
+        # Update state
+        state["state"] = GitFlowState.DEVELOP_MERGED.value
+        save_state(state)
+
+        # Cleanup
+        complete_release_process(release_branch, version, state)
+
+    elif target == "main-push":
+        # We were unable to push to main
+        current_branch = get_current_branch()
+        if current_branch != "main":
+            run_command("git checkout main", "Failed to checkout main branch")
+
+        # Try pushing again
+        run_command("git push origin main", "Failed to push main to remote")
+
+        # Update state
+        state["state"] = GitFlowState.MAIN_PUSHED.value
+        save_state(state)
+
+        # Continue with tag
+        tag_name = f"v{version}"
+        run_command(
+            f'git tag -a {tag_name} -m "Version {version}"', "Failed to create tag"
+        )
+        run_command(f"git push origin {tag_name}", "Failed to push tag to remote")
+
+        # Update state
+        state["state"] = GitFlowState.TAG_PUSHED.value
+        save_state(state)
+
+        # Continue with develop
+        print("\nMerging release branch to develop...")
+        develop_merge_success = attempt_merge(
+            release_branch,
+            "develop",
+            f"Merge {release_branch} back into develop",
+            no_verify,
+        )
+
+        if not develop_merge_success:
+            print("\n🛑 Merge conflicts detected when merging to develop!")
+            print("Please follow these steps to resolve the conflicts:")
+            print("1. Resolve the conflicts in the affected files")
+            print("2. Stage the resolved files with 'git add <file>'")
+            print("3. Commit the changes with 'git commit'")
+            print("4. Run 'python gitflow_deploy.py continue-release --target=develop'")
+            sys.exit(1)
+
+        # Push develop
+        run_command("git push origin develop", "Failed to push develop to remote")
+
+        # Update state
+        state["state"] = GitFlowState.DEVELOP_MERGED.value
+        save_state(state)
+
+        # Cleanup
+        complete_release_process(release_branch, version, state)
+
+    elif target in ["tag", "tag-push", "develop-push"]:
+        # Handle these specific continuation points
+        if target == "tag":
+            # Create tag
+            tag_name = f"v{version}"
+            run_command(
+                f'git tag -a {tag_name} -m "Version {version}"', "Failed to create tag"
+            )
+            run_command(f"git push origin {tag_name}", "Failed to push tag to remote")
+
+            # Update state
+            state["state"] = GitFlowState.TAG_PUSHED.value
+            save_state(state)
+
+            # Continue with develop
+            continue_with_develop(release_branch, version, state, no_verify)
+
+        elif target == "tag-push":
+            # Push tag
+            tag_name = f"v{version}"
+            run_command(f"git push origin {tag_name}", "Failed to push tag to remote")
+
+            # Update state
+            state["state"] = GitFlowState.TAG_PUSHED.value
+            save_state(state)
+
+            # Continue with develop
+            continue_with_develop(release_branch, version, state, no_verify)
+
+        elif target == "develop-push":
+            # Push develop
+            run_command("git checkout develop", "Failed to checkout develop branch")
+            run_command("git push origin develop", "Failed to push develop to remote")
+
+            # Update state
+            state["state"] = GitFlowState.DEVELOP_MERGED.value
+            save_state(state)
+
+            # Cleanup
+            complete_release_process(release_branch, version, state)
+    else:
+        print(f"Error: Unknown target '{target}'")
+        print("Valid targets: main, main-push, tag, tag-push, develop, develop-push")
+        sys.exit(1)
+
+
+def continue_with_develop(
+    release_branch: str, version: str, state: Dict[str, Any], no_verify: bool
+) -> None:
+    """Continue the release process with the develop branch merge."""
+    print("\nMerging release branch to develop...")
+    develop_merge_success = attempt_merge(
+        release_branch,
+        "develop",
+        f"Merge {release_branch} back into develop",
+        no_verify,
+    )
+
+    if not develop_merge_success:
+        print("\n🛑 Merge conflicts detected when merging to develop!")
+        print("Please follow these steps to resolve the conflicts:")
+        print("1. Resolve the conflicts in the affected files")
+        print("2. Stage the resolved files with 'git add <file>'")
+        print("3. Commit the changes with 'git commit'")
+        print("4. Run 'python gitflow_deploy.py continue-release --target=develop'")
+        sys.exit(1)
+
+    # Push develop
+    run_command("git push origin develop", "Failed to push develop to remote")
+
+    # Update state
+    state["state"] = GitFlowState.DEVELOP_MERGED.value
+    save_state(state)
+
+    # Cleanup
+    complete_release_process(release_branch, version, state)
+
+
+def complete_release_process(
+    release_branch: str, version: str, state: Dict[str, Any]
+) -> None:
+    """Complete the release process by cleaning up and showing success message."""
+    # Delete release branch
+    run_command(
+        f"git branch -d {release_branch}",
+        "Failed to delete local release branch",
+        check=False,
+    )
+    run_command(
+        f"git push origin -d {release_branch}",
+        "Failed to delete remote release branch",
+        check=False,
+    )
+
+    # Update state - completed
+    state["state"] = GitFlowState.COMPLETED.value
+    save_state(state)
+
+    print(f"\n✅ Release v{version} finalized successfully!")
+    print(f"Version tag v{version} created and pushed.")
+    print("\nGitHub Actions will now build and publish the package to PyPI.")
+    print("You can monitor the workflow at:")
+
+    # Get repository URL
+    repo_url = run_command(
+        "git config --get remote.origin.url", "Failed to get repository URL"
+    )
+    # Convert SSH URL to HTTPS if necessary
+    if repo_url.startswith("git@github.com:"):
+        repo_url = repo_url.replace("git@github.com:", "https://github.com/")
+        if repo_url.endswith(".git"):
+            repo_url = repo_url[:-4]
+    print(f"{repo_url}/actions")
+
+    # Remove state file after successful completion
+    try:
+        Path(".gitflow_state.txt").unlink(missing_ok=True)
+    except Exception:
+        print("Error unlinking .gitflow_state.txt")
+        pass
 
 
 def start_hotfix(version: Optional[str] = None, no_verify: bool = False) -> None:
@@ -459,6 +942,24 @@ def main() -> None:
         help="Skip pre-commit hooks when committing",
     )
 
+    # Continue release command
+    continue_parser = subparsers.add_parser(
+        "continue-release",
+        help="Continue a release after resolving conflicts or issues",
+    )
+    continue_parser.add_argument(
+        "--target",
+        "-t",
+        required=True,
+        help="Target step to continue from (main, main-push, tag, tag-push, develop, develop-push)",
+    )
+    continue_parser.add_argument(
+        "--no-verify",
+        "-n",
+        action="store_true",
+        help="Skip pre-commit hooks when committing",
+    )
+
     # Hotfix command
     hotfix_parser = subparsers.add_parser(
         "hotfix", help="Start a new hotfix branch from main"
@@ -504,6 +1005,8 @@ def main() -> None:
         start_release(args.version_part, args.version, args.no_verify)
     elif args.action == "finalize-release":
         finalize_release(args.no_verify)
+    elif args.action == "continue-release":
+        continue_release(args.target, args.no_verify)
     elif args.action == "hotfix":
         start_hotfix(args.version, args.no_verify)
     elif args.action == "deploy":
