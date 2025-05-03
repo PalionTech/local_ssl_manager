@@ -45,7 +45,7 @@ def get_current_version() -> str:
 
 
 def update_version(new_version: str) -> None:
-    """Update the version in pyproject.toml."""
+    """Update the version in pyproject.toml and __init__.py."""
     pyproject_path = Path("pyproject.toml")
     init_path = Path("src/local_ssl_manager/__init__.py")
 
@@ -106,13 +106,24 @@ def get_next_version(current_version: str, version_part: str = "patch") -> str:
         return f"{major}.{minor}.{patch + 1}"
 
 
-def run_command(command: str, error_message: str, capture_output: bool = True) -> str:
+def run_command(
+    command: str,
+    error_message: str,
+    capture_output: bool = True,
+    check: bool = True,
+    no_verify: bool = False,
+) -> str:
     """Run a shell command and exit if it fails."""
     print(f"Running: {command}")
+
+    # Add --no-verify for git commit commands if requested
+    if no_verify and "git commit" in command:
+        command = command.replace("git commit", "git commit --no-verify")
+
     result = subprocess.run(
         command, shell=True, capture_output=capture_output, text=True
     )
-    if result.returncode != 0:
+    if check and result.returncode != 0:
         print(f"Error: {error_message}")
         print(f"Command output: {result.stderr}")
         sys.exit(1)
@@ -174,20 +185,23 @@ def update_changelog(version: str, message: Optional[str] = None) -> None:
     print(f"Updated CHANGELOG.md with version {version}")
 
 
-def start_release(version_part: str, version: Optional[str] = None) -> None:
+def start_release(
+    version_part: str, version: Optional[str] = None, no_verify: bool = False
+) -> None:
     """
     Start a new release branch from develop.
 
     Args:
         version_part: Which part to increment: 'major', 'minor', or 'patch'
         version: Specific version to use (optional)
+        no_verify: Skip pre-commit hooks when committing
     """
     # Ensure we're on develop branch
     current_branch = get_current_branch()
     if current_branch != "develop":
         print(
-            f"""Error: You must be on the develop branch
-                to start a release (current: {current_branch})"""
+            f"""Error: You must be on the develop
+            branch to start a release (current: {current_branch})"""
         )
         sys.exit(1)
 
@@ -220,6 +234,7 @@ def start_release(version_part: str, version: Optional[str] = None) -> None:
     run_command(
         f'git commit -am "Prepare release v{new_version}"',
         "Failed to commit version change",
+        no_verify=no_verify,
     )
 
     # Push to remote
@@ -236,15 +251,21 @@ def start_release(version_part: str, version: Optional[str] = None) -> None:
     print("3. Run 'python gitflow_deploy.py finalize-release' when ready to finalize")
 
 
-def finalize_release() -> None:
+def finalize_release(no_verify: bool = False) -> None:
     """
     Finalize a release by merging into main and develop.
+
+    Args:
+        no_verify: Skip pre-commit hooks when committing
     """
     # Check if we're on a release branch
     current_branch = get_current_branch()
-    if not current_branch.startswith("release/"):
+    if not current_branch.startswith("release/") and not current_branch.startswith(
+        "hotfix/"
+    ):
         print(
-            f"Error: You must be on a release branch to finalize (current: {current_branch})"
+            f"""Error: You must be on a release or hotfix
+            branch to finalize (current: {current_branch})"""
         )
         sys.exit(1)
 
@@ -254,20 +275,36 @@ def finalize_release() -> None:
         sys.exit(1)
 
     # Extract version from branch name or from files
-    version = current_branch.replace("release/v", "")
-    if not validate_version(version):
+    branch_match = re.search(r"/(v[0-9]+\.[0-9]+\.[0-9]+)$", current_branch)
+    if branch_match:
+        version = branch_match.group(1)[1:]  # Remove the 'v' prefix
+    else:
         # Try to get from pyproject.toml instead
         version = get_current_version()
 
+    if not validate_version(version):
+        sys.exit(1)
+
     # Make sure release branch is up to date
     run_command(f"git pull origin {current_branch}", "Failed to pull latest changes")
+
+    # Configure git pull strategy if not set
+    try:
+        run_command(
+            "git config pull.rebase false",
+            "Failed to configure git pull strategy",
+            check=False,
+        )
+    except Exception:
+        pass  # Ignore if it fails
 
     # Merge to main
     run_command("git checkout main", "Failed to checkout main branch")
     run_command("git pull origin main", "Failed to pull latest changes from main")
     run_command(
-        f'git merge --no-ff {current_branch} -m "Merge release v{version} into main"',
+        f'git merge --no-ff {current_branch} -m "Merge {current_branch} into main"',
         f"Failed to merge {current_branch} into main",
+        no_verify=no_verify,
     )
 
     # Create version tag
@@ -282,17 +319,22 @@ def finalize_release() -> None:
     run_command("git checkout develop", "Failed to checkout develop branch")
     run_command("git pull origin develop", "Failed to pull latest changes from develop")
     run_command(
-        f'git merge --no-ff {current_branch} -m "Merge release v{version} back into develop"',
+        f'git merge --no-ff {current_branch} -m "Merge {current_branch} back into develop"',
         f"Failed to merge {current_branch} into develop",
+        no_verify=no_verify,
     )
     run_command("git push origin develop", "Failed to push develop to remote")
 
     # Delete release branch
     run_command(
-        "git branch -d " + current_branch, "Failed to delete local release branch"
+        "git branch -d " + current_branch,
+        "Failed to delete local release branch",
+        check=False,
     )
     run_command(
-        "git push origin -d " + current_branch, "Failed to delete remote release branch"
+        "git push origin -d " + current_branch,
+        "Failed to delete remote release branch",
+        check=False,
     )
 
     print(f"\n✅ Release v{version} finalized successfully!")
@@ -312,12 +354,13 @@ def finalize_release() -> None:
     print(f"{repo_url}/actions")
 
 
-def start_hotfix(version: Optional[str] = None) -> None:
+def start_hotfix(version: Optional[str] = None, no_verify: bool = False) -> None:
     """
     Start a hotfix branch from main.
 
     Args:
         version: Specific version to use (optional)
+        no_verify: Skip pre-commit hooks when committing
     """
     # Ensure we're on main branch
     current_branch = get_current_branch()
@@ -356,6 +399,7 @@ def start_hotfix(version: Optional[str] = None) -> None:
     run_command(
         f'git commit -am "Prepare hotfix v{new_version}"',
         "Failed to commit version change",
+        no_verify=no_verify,
     )
 
     # Push to remote
@@ -370,14 +414,8 @@ def start_hotfix(version: Optional[str] = None) -> None:
     print("1. Fix the critical issue(s) in this branch")
     print("2. Update the CHANGELOG.md with the fixes made")
     print(
-        """3. Finalize the hotfix with 'gitflow_deploy.py finalize-release'
-          (same command as regular releases)"""
+        "3. Finalize the hotfix with 'python gitflow_deploy.py finalize-release' when ready"
     )
-
-
-def finalize_hotfix() -> None:
-    """Alias for finalize_release, as the process is the same."""
-    return finalize_release()
 
 
 def main() -> None:
@@ -402,11 +440,23 @@ def main() -> None:
     release_parser.add_argument(
         "--version", "-v", help="Specific version to use (overrides version-part)"
     )
+    release_parser.add_argument(
+        "--no-verify",
+        "-n",
+        action="store_true",
+        help="Skip pre-commit hooks when committing",
+    )
 
     # Finalize release command
-    subparsers.add_parser(
+    finalize_parser = subparsers.add_parser(
         "finalize-release",
         help="Finalize a release branch by merging into main and develop",
+    )
+    finalize_parser.add_argument(
+        "--no-verify",
+        "-n",
+        action="store_true",
+        help="Skip pre-commit hooks when committing",
     )
 
     # Hotfix command
@@ -418,6 +468,12 @@ def main() -> None:
         "-v",
         help="Specific version to use (default: increment patch version)",
     )
+    hotfix_parser.add_argument(
+        "--no-verify",
+        "-n",
+        action="store_true",
+        help="Skip pre-commit hooks when committing",
+    )
 
     # Deploy command (legacy support for the original deploy.py script)
     deploy_parser = subparsers.add_parser(
@@ -427,6 +483,12 @@ def main() -> None:
         "--version", "-v", help="New version to deploy (X.Y.Z format)"
     )
     deploy_parser.add_argument("--message", "-m", help="Version tag message")
+    deploy_parser.add_argument(
+        "--no-verify",
+        "-n",
+        action="store_true",
+        help="Skip pre-commit hooks when committing",
+    )
 
     args = parser.parse_args()
 
@@ -439,15 +501,15 @@ def main() -> None:
 
     # Execute the selected action
     if args.action == "start-release":
-        start_release(args.version_part, args.version)
+        start_release(args.version_part, args.version, args.no_verify)
     elif args.action == "finalize-release":
-        finalize_release()
+        finalize_release(args.no_verify)
     elif args.action == "hotfix":
-        start_hotfix(args.version)
+        start_hotfix(args.version, args.no_verify)
     elif args.action == "deploy":
         # Legacy support for deploy.py
         # Just run the finalize-release command
-        finalize_release()
+        finalize_release(args.no_verify)
     else:
         parser.print_help()
 
