@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-ssl-manager"
-version = "0.1.4"
+version = "0.1.5"
 description = "Manage local SSL certificates for development environments"
 authors = [{name = "Maximilian Bertram", email = "contact@maxbertram.com"}]
 readme = "README.md"
