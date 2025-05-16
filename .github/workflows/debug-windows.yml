@@ -1,0 +1,30 @@
+name: Windows Test Environment
+
+on:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: "Enable RDP debugging session"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  windows-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install package
+        run: pip install -e .
+
+      - name: Enable RDP access
+        if: ${{ github.event.inputs.debug_enabled == 'true' }}
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
