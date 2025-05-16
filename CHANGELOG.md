@@ -1,5 +1,10 @@
 # Changelog
 
+## [v0.1.12] - 2025-05-16
+
+### Comment
+
+- Still checking
 ## [v0.1.11] - 2025-05-03
 
 ### Comment
