@@ -392,6 +392,9 @@ def setup_browser_trust() -> bool:
 
     Returns:
         True if successful, False otherwise
+
+    Raises:
+        RuntimeError: If certificate creation fails
     """
     try:
         # Ensure mkcert is installed

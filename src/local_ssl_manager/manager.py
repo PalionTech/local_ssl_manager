@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .logging import get_domain_logger
 from .utils.certificate import (
     check_certificate_validity,
     create_certificate,
@@ -183,8 +184,6 @@ class LocalSSLManager:
             raise ValueError(f"Domain {domain} is already configured")
 
         # Get domain-specific logger
-        from .logging import get_domain_logger
-
         domain_logger = get_domain_logger(domain, self.logs_dir)
 
         self.logger.info(f"Setting up domain {domain}...")
@@ -192,9 +191,10 @@ class LocalSSLManager:
 
         # Set up browser trust
         trust_result = setup_browser_trust()
-        domain_logger.info(
-            f"Browser trust setup {'successful' if trust_result else 'failed'}"
-        )
+        if not trust_result:
+            raise RuntimeError("Browser trust setup failed")
+        else:
+            domain_logger.info("Browser trust setup successful")
 
         # Back up hosts file before modification
         backup_hosts_file(self.hosts_backup)
