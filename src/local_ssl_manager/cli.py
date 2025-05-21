@@ -5,6 +5,7 @@ This module provides the CLI entry points for the local-ssl-manager tool.
 It uses Click for command parsing and Rich for terminal output formatting.
 """
 
+import logging
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -18,12 +19,22 @@ from rich.prompt import Confirm
 from rich.table import Table
 
 from . import __version__
+from .logging import configure_logging
 from .manager import LocalSSLManager
 from .ui.domain_selector import show_domain_selector
 from .utils.system import check_admin_privileges, run_as_admin
 
 # Create console for rich output
 console = Console()
+
+
+# Define a custom Click context class to store common options
+class AppContext:
+    def __init__(self):
+        self.verbose: bool = False
+        self.quiet: bool = False
+        self.base_dir: Optional[Path] = None
+        self.log_level: int = logging.INFO
 
 
 def print_error(message: str) -> None:
@@ -165,7 +176,21 @@ def print_certificate_details(cert_info: Dict[str, str]) -> None:
 
 @click.group()
 @click.version_option(version=__version__, prog_name="Local SSL Manager")
-def cli():
+@click.option("--verbose", "-v", is_flag=True, help="Enable verbose output")
+@click.option(
+    "--debug", is_flag=True, help="Enable debug output (more verbose than --verbose)"
+)
+@click.option("--quiet", "-q", is_flag=True, help="Suppress most output except errors")
+@click.option(
+    "--base-dir",
+    "-b",
+    type=click.Path(file_okay=False),
+    help="Custom base directory for certificates and configuration",
+)
+@click.pass_context
+def cli(
+    ctx: click.Context, verbose: bool, debug: bool, quiet: bool, base_dir: Optional[str]
+):
     """
     Local SSL Manager - Create and manage SSL certificates for local development.
 
@@ -177,7 +202,26 @@ def cli():
 
     All certificates and configuration are stored in ~/.local-ssl-manager by default.
     """
-    pass
+    # Create a custom context Object
+    ctx.obj = AppContext()
+
+    ctx.obj.quiet = quiet
+
+    # Set the log level based on flags (debug > verbose > normal > quiet)
+    if debug:
+        ctx.obj.log_leve = logging.DEBUG
+        ctx.boj.verbose = True
+    elif verbose:
+        ctx.obj.log_level = logging.INFO
+        ctx.obj.verbose = True
+    elif quiet:
+        ctx.obj.log_level = logging.WARNING
+    else:
+        ctx.obj.log_level = logging.INFO
+
+    # Store base directory
+    if base_dir:
+        ctx.obj.base_dir = Path(base_dir)
 
 
 @cli.command()
@@ -190,13 +234,8 @@ def cli():
 @click.option(
     "--ip", default="127.0.0.1", help="IP address for the domain (default: 127.0.0.1)"
 )
-@click.option(
-    "--base-dir",
-    "-b",
-    type=click.Path(file_okay=False),
-    help="Custom base directory for certificates and configuration",
-)
-def create(domain: str, ip: str, base_dir: Optional[str] = None):
+@click.pass_context
+def create(ctx: click.Context, domain: str, ip: str):
     """Create a new SSL certificate for a local domain."""
     # Check for admin privileges
     if not check_privileges():
@@ -204,7 +243,15 @@ def create(domain: str, ip: str, base_dir: Optional[str] = None):
 
     try:
         # Initialize manager
+        base_dir = ctx.obj.base_dir
+        log_level = ctx.obj.log_level
+
         manager = LocalSSLManager(Path(base_dir) if base_dir else None)
+
+        # Configure logging
+        configure_logging(
+            manager.logs_dir, log_level=log_level, console_output=not ctx.obj.quiet
+        )
 
         # Create certificate with progress indicator
         print_info(f"Creating certificate for {domain}...")

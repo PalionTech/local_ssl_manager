@@ -14,7 +14,9 @@ from pathlib import Path
 logging.getLogger("local_ssl_manager").addHandler(logging.NullHandler())
 
 
-def configure_logging(logs_dir: Path) -> None:
+def configure_logging(
+    logs_dir: Path, log_level: int = logging.INFO, console_output: bool = True
+) -> None:
     """
     Configure package-wide logging.
 
@@ -37,18 +39,33 @@ def configure_logging(logs_dir: Path) -> None:
     logger.setLevel(logging.INFO)
 
     # Console handler - user-facing logs (keep simple)
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_format = logging.Formatter("%(levelname)s: %(message)s")
-    console_handler.setFormatter(console_format)
-    logger.addHandler(console_handler)
+    if console_output:
+        console_handler = logging.StreamHandler(sys.stdout)
 
-    # File handler - detailed logs
+        # Simpler format when not in debug mode
+        if log_level == logging.DEBUG:
+            console_format = logging.Formatter("%(levelname)s (%(name)s): %(message)s")
+        else:
+            console_format = logging.Formatter("%(levelname)s: %(message)s")
+
+        console_handler.setFormatter(console_format)
+        console_handler.setLevel(log_level)
+        logger.addHandler(console_handler)
+
+    # File handler - detailed logs (always enabled)
     try:
         file_handler = logging.FileHandler(logs_dir / "ssl-manager.log")
-        file_format = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+        # Always use detailed format for file logs
+        file_format = logging.Formatter(
+            "%(asctime)s - %(levelname)s - %(name)s - %(message)s"
+        )
         file_handler.setFormatter(file_format)
+
+        # File always gets all logs (for debugging)
+        file_handler.setLevel(min(log_level, logging.DEBUG))
         logger.addHandler(file_handler)
     except Exception as e:
+        # Just print a warning but don't crash
         print(f"Warning: Could not set up log file: {e}")
 
 
