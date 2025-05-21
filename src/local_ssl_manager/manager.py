@@ -12,7 +12,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from .logging import LoggingManager
 from .utils.certificate import (
     check_certificate_validity,
     create_certificate,
@@ -79,8 +78,14 @@ class LocalSSLManager:
         self._setup_directories()
 
         # Initialize logging
-        self.logging_manager = LoggingManager(self.logs_dir)
-        self.logger = self.logging_manager.get_logger()
+        from .logging import configure_logging
+
+        configure_logging(self.logs_dir)
+
+        # Get logger
+        from .logging import get_logger
+
+        self.logger = get_logger()
 
         self.logger.info(
             f"SSL Manager initialized with base directory: {self.base_dir}"
@@ -178,7 +183,9 @@ class LocalSSLManager:
             raise ValueError(f"Domain {domain} is already configured")
 
         # Get domain-specific logger
-        domain_logger = self.logging_manager.get_domain_logger(domain)
+        from .logging import get_domain_logger
+
+        domain_logger = get_domain_logger(domain, self.logs_dir)
 
         self.logger.info(f"Setting up domain {domain}...")
         domain_logger.info(f"Starting setup for domain {domain}")
