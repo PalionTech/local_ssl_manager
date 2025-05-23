@@ -191,13 +191,18 @@ def check_certificate_validity(cert_path: Path) -> Dict[str, Any]:
 
     try:
         import ssl
+        from datetime import datetime
 
         # Read the certificate
         with open(cert_path, "rb") as f:
             cert_data = f.read()
 
         # Load the certificate
-        ssl.PEM_cert_to_DER_cert(cert_data.decode("utf-8"))
+        x509 = ssl.PEM_cert_to_DER_cert(cert_data.decode("utf-8"))
+        expiry_date = datetime.datetime.strptime(
+            x509.get_notAfter().decode(), "%Y%m%d%H%M%SZ"
+        )
+        print(expiry_date)
 
         # Try to get basic info (this is limited without OpenSSL)
         # For now, just return that it exists and is presumably valid

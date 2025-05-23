@@ -239,6 +239,7 @@ def create(ctx: click.Context, domain: str, ip: str):
     """Create a new SSL certificate for a local domain."""
     # Check for admin privileges
     if not check_privileges():
+        print_error("Check for necessary priviledges failed")
         return
 
     try:
