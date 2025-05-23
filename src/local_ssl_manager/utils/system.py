@@ -81,20 +81,20 @@ def run_as_admin(args: List[str]) -> None:
                 "-Verb",
                 "RunAs",
             ]
-            subprocess.run(cmd, check=True)
+            subprocess.run(cmd, check=True, encoding="utf-8", errors="replace")
 
         elif system == "Darwin":  # macOS
             # On macOS, use a more reliable approach that preserves the environment
             # Instead of trying to restart with a module import, just use sudo directly
             cmd = ["sudo"] + args
             logger.info(f"Running command with sudo: {cmd}")
-            subprocess.run(cmd, check=True)
+            subprocess.run(cmd, check=True, encoding="utf-8", errors="replace")
             sys.exit(0)  # Exit after successful sudo execution
 
         elif system == "Linux":
             # On Linux, use sudo
             cmd = ["sudo"] + args
-            subprocess.run(cmd, check=True)
+            subprocess.run(cmd, check=True, encoding="utf-8", errors="replace")
 
         else:
             raise RuntimeError(f"Unsupported system for privilege elevation: {system}")
@@ -226,6 +226,8 @@ def update_hosts_file(
                         ["icacls", str(hosts_path), "/grant", f"{os.getlogin()}:F"],
                         check=True,
                         capture_output=True,
+                        encoding="utf-8",
+                        errors="replace",
                     )
                     import shutil
 
@@ -235,6 +237,8 @@ def update_hosts_file(
                         ["icacls", str(hosts_path), "/reset"],
                         check=True,
                         capture_output=True,
+                        encoding="utf-8",
+                        errors="replace",
                     )
                 except subprocess.SubprocessError:
                     # If that fails, try with elevation
@@ -250,7 +254,12 @@ def update_hosts_file(
                 shutil.copy2(temp_path, hosts_path)
             else:
                 # Use sudo for elevation
-                subprocess.run(["sudo", "cp", temp_path, str(hosts_path)], check=True)
+                subprocess.run(
+                    ["sudo", "cp", temp_path, str(hosts_path)],
+                    check=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
 
     except Exception as e:
         logger.error(f"Failed to update hosts file: {e}")
@@ -316,12 +325,22 @@ def check_command_exists(command: str) -> bool:
         if platform.system() == "Windows":
             # On Windows, use where command
             result = subprocess.run(
-                ["where", command], check=False, capture_output=True, text=True
+                ["where", command],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
             )
         else:
             # On Unix-like systems, use which command
             result = subprocess.run(
-                ["which", command], check=False, capture_output=True, text=True
+                ["which", command],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
             )
 
         # Command exists if return code is 0
@@ -329,6 +348,91 @@ def check_command_exists(command: str) -> bool:
 
     except Exception:
         return False
+
+
+def _download_mkcert_windows() -> str:
+    """
+    Download mkcert directly from GitHub releases for Windows.
+
+    Returns:
+        Path to the installed mkcert executable, or empty string if failed
+    """
+    import shutil
+    import urllib.request
+
+    try:
+        # Determine architecture
+        import struct
+
+        is_64bit = struct.calcsize("P") * 8 == 64
+        arch = "amd64" if is_64bit else "386"
+
+        # mkcert download URL (using a stable version)
+        version = "v1.4.4"  # Latest stable version as of 2023
+        filename = f"mkcert-{version}-windows-{arch}.exe"
+        url = f"https://github.com/FiloSottile/mkcert/releases/download/{version}/{filename}"
+
+        # Download to temp directory
+        temp_dir = Path(tempfile.gettempdir()) / "mkcert_download"
+        temp_dir.mkdir(exist_ok=True)
+        download_path = temp_dir / "mkcert.exe"
+
+        logger.info(f"Downloading mkcert from {url}...")
+        urllib.request.urlretrieve(url, download_path)
+
+        # Try to move to a directory in PATH
+        # First, try Program Files
+        program_files = Path(os.environ.get("ProgramFiles", "C:\\Program Files"))
+        target_dir = program_files / "mkcert"
+
+        try:
+            target_dir.mkdir(exist_ok=True)
+            target_path = target_dir / "mkcert.exe"
+            shutil.move(str(download_path), str(target_path))
+
+            # Add to PATH for current session
+            current_path = os.environ.get("PATH", "")
+            if str(target_dir) not in current_path:
+                os.environ["PATH"] = f"{current_path};{target_dir}"
+
+            logger.info(f"mkcert installed to {target_path}")
+
+            # Store the path globally so we can use it later
+            os.environ["MKCERT_PATH"] = str(target_path)
+
+            return str(target_path)
+
+        except (PermissionError, OSError):
+            # If we can't write to Program Files, try user's local directory
+            local_dir = Path.home() / ".local" / "bin"
+            local_dir.mkdir(parents=True, exist_ok=True)
+            target_path = local_dir / "mkcert.exe"
+
+            shutil.move(str(download_path), str(target_path))
+
+            # Add to PATH for current session
+            current_path = os.environ.get("PATH", "")
+            if str(local_dir) not in current_path:
+                os.environ["PATH"] = f"{current_path};{local_dir}"
+
+            logger.info(f"mkcert installed to {target_path}")
+
+            # Store the path globally so we can use it later
+            os.environ["MKCERT_PATH"] = str(target_path)
+
+            return str(target_path)
+
+    except Exception as e:
+        logger.error(f"Failed to download mkcert: {e}")
+        return ""
+    finally:
+        # Clean up temp directory
+        if "temp_dir" in locals() and temp_dir.exists():
+            try:
+                shutil.rmtree(temp_dir)
+            except Exception as e:
+                logger.error(f"Failed to clean up temporary files: {e}")
+                pass
 
 
 def install_mkcert() -> bool:
@@ -350,28 +454,63 @@ def install_mkcert() -> bool:
         if system == "Darwin":  # macOS
             # Try Homebrew first
             if check_command_exists("brew"):
-                subprocess.run(["brew", "install", "mkcert"], check=True)
+                subprocess.run(
+                    ["brew", "install", "mkcert"],
+                    check=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
                 return check_command_exists("mkcert")
 
         elif system == "Linux":
             # Try apt (Debian/Ubuntu)
             if check_command_exists("apt"):
-                subprocess.run(["sudo", "apt", "update"], check=True)
-                subprocess.run(["sudo", "apt", "install", "-y", "mkcert"], check=True)
+                subprocess.run(
+                    ["sudo", "apt", "update"],
+                    check=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                subprocess.run(
+                    ["sudo", "apt", "install", "-y", "mkcert"],
+                    check=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
                 return check_command_exists("mkcert")
 
             # Try dnf (Fedora)
             elif check_command_exists("dnf"):
-                subprocess.run(["sudo", "dnf", "install", "-y", "mkcert"], check=True)
+                subprocess.run(
+                    ["sudo", "dnf", "install", "-y", "mkcert"],
+                    check=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
                 return check_command_exists("mkcert")
 
+        elif system == "Windows":
+            # Try Chocolatey first
+            if check_command_exists("choco"):
+                logger.info("Found Chocolatey, installing mkcert...")
+                try:
+                    subprocess.run(
+                        ["choco", "install", "mkcert", "-y"],
+                        check=True,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                    return check_command_exists("mkcert")
+                except subprocess.SubprocessError:
+                    logger.warning(
+                        "Chocolatey installation failed, trying direct download..."
+                    )
+
+            # Direct download from GitHub
+            mkcert_path = _download_mkcert_windows()
+            return bool(mkcert_path)
+
         # Provide instructions for manual installation if we couldn't install automatically
-        if system == "Windows":
-            logger.warning("mkcert is not installed. Please install it manually:")
-            logger.warning("  - Using Chocolatey: choco install mkcert")
-            logger.warning(
-                "  - Or download from: https://github.com/FiloSottile/mkcert/releases"
-            )
         else:
             logger.warning(
                 "Could not install mkcert automatically. Please install it manually."
@@ -384,6 +523,66 @@ def install_mkcert() -> bool:
         return False
 
 
+def get_mkcert_command() -> str:
+    """
+    Get the mkcert command, using full path if needed.
+
+    Returns:
+        The mkcert command to use
+    """
+    # Check if we have a stored path from recent installation
+    if platform.system() == "Windows" and "MKCERT_PATH" in os.environ:
+        mkcert_path = os.environ["MKCERT_PATH"]
+        if Path(mkcert_path).exists():
+            return mkcert_path
+
+    # Otherwise just use 'mkcert' and hope it's in PATH
+    return "mkcert"
+
+
+def _run_mkcert_install_elevated_windows(mkcert_cmd: str) -> bool:
+    """
+    Try to run mkcert -install with elevation on Windows.
+
+    Returns:
+        True if successful, False otherwise
+    """
+    try:
+        # Create a temporary PowerShell script to run mkcert -install as admin
+        ps_script = f"""
+        Start-Process -FilePath "{mkcert_cmd}" -ArgumentList "-install" -Verb RunAs -Wait
+        """
+
+        # Run the PowerShell script
+        subprocess.run(
+            ["powershell", "-Command", ps_script],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        # Check if it worked by verifying the CA exists
+        ca_root_result = subprocess.run(
+            [mkcert_cmd, "-CAROOT"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        if ca_root_result.returncode == 0:
+            ca_root = ca_root_result.stdout.strip()
+            root_ca_path = Path(ca_root) / "rootCA.pem"
+            return root_ca_path.exists()
+
+        return False
+
+    except Exception as e:
+        logger.error(f"Failed to run mkcert with elevation: {e}")
+        return False
+
+
 def setup_browser_trust() -> bool:
     """
     Set up browser trust for self-signed certificates.
@@ -392,23 +591,82 @@ def setup_browser_trust() -> bool:
 
     Returns:
         True if successful, False otherwise
-
-    Raises:
-        RuntimeError: If certificate creation fails
     """
     try:
         # Ensure mkcert is installed
         if not check_command_exists("mkcert") and not install_mkcert():
             logger.error("Cannot set up browser trust without mkcert")
+            # On Windows, provide more detailed error message
+            if platform.system() == "Windows":
+                logger.error(
+                    "Failed to install mkcert automatically. Please install manually:"
+                )
+                logger.error(
+                    "  1. Download from: https://github.com/FiloSottile/mkcert/releases"
+                )
+                logger.error("  2. Or install via Chocolatey: choco install mkcert")
+                logger.error("  3. Ensure mkcert.exe is in your PATH")
             return False
+
+        # Get the correct mkcert command
+        mkcert_cmd = get_mkcert_command()
 
         # Initialize mkcert CA
         logger.info("Setting up root CA certificate...")
-        subprocess.run(["mkcert", "-install"], check=True)
+
+        # On Windows, try different approaches
+        if platform.system() == "Windows":
+            # First try normal execution
+            result = subprocess.run(
+                [mkcert_cmd, "-install"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                check=False,
+            )
+
+            if result.returncode != 0:
+                if (
+                    "The request is not supported" in result.stderr
+                    or "access denied" in result.stderr.lower()
+                ):
+                    logger.info("Attempting to install CA with elevated privileges...")
+
+                    # Try with elevation
+                    if _run_mkcert_install_elevated_windows(mkcert_cmd):
+                        logger.info(
+                            "Successfully installed CA with elevated privileges"
+                        )
+                    else:
+                        logger.warning(
+                            "Failed to add certificate to system store (permission denied)."
+                        )
+                        logger.warning(
+                            "Certificate will still work but you may see browser warnings."
+                        )
+                        logger.info(
+                            "To fix this, run 'mkcert -install' as Administrator manually."
+                        )
+                else:
+                    # Other errors should still fail
+                    raise subprocess.CalledProcessError(
+                        result.returncode, result.args, result.stdout, result.stderr
+                    )
+        else:
+            # Non-Windows systems
+            subprocess.run(
+                [mkcert_cmd, "-install"], check=True, encoding="utf-8", errors="replace"
+            )
 
         # Get the CA root path
         ca_root = subprocess.run(
-            ["mkcert", "-CAROOT"], capture_output=True, text=True, check=True
+            [mkcert_cmd, "-CAROOT"],
+            capture_output=True,
+            text=True,
+            check=True,
+            encoding="utf-8",
+            errors="replace",
         ).stdout.strip()
 
         root_ca_path = Path(ca_root) / "rootCA.pem"
@@ -435,16 +693,16 @@ def setup_browser_trust() -> bool:
                         str(root_ca_path),
                     ],
                     check=True,
+                    encoding="utf-8",
+                    errors="replace",
                 )
                 logger.info("Added root certificate to System keychain")
             except subprocess.SubprocessError as e:
                 logger.warning(f"Could not add to System keychain: {e}")
 
-        logger.info("Root certificate successfully installed")
+        logger.info("Root certificate setup completed")
         return True
 
     except Exception as e:
-        print("FAILED")
         logger.error(f"Failed to set up browser trust: {e}")
-        logger.info("Continuing without extended browser trust...")
         return False

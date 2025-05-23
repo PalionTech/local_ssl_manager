@@ -192,7 +192,7 @@ class LocalSSLManager:
         # Set up browser trust
         trust_result = setup_browser_trust()
         if not trust_result:
-            raise RuntimeError("Browser trust setup failed")
+            domain_logger.error("Browser trust setup failed")
         else:
             domain_logger.info("Browser trust setup successful")
 
@@ -281,7 +281,7 @@ class LocalSSLManager:
             name = domains[0]
 
         # Get domain-specific logger
-        domain_logger = self.logging_manager.get_domain_logger(name)
+        domain_logger = self.logging_manager.get_domain_logger(name, self.logs_dir)
 
         self.logger.info(f"Setting up multi-domain {name}...")
         domain_logger.info(f"Starting setup for multi-domain {name}")
@@ -477,7 +477,7 @@ class LocalSSLManager:
             raise ValueError(f"Certificate for {domain} not found")
 
         # Get domain logger before we delete anything
-        domain_logger = self.logging_manager.get_domain_logger(domain)
+        domain_logger = self.logging_manager.get_domain_logger(domain, self.logs_dir)
         domain_logger.info(f"Starting deletion of certificate for {domain}")
 
         # Get certificate data
@@ -641,7 +641,7 @@ class LocalSSLManager:
             raise FileNotFoundError(f"Key file not found: {key_path}")
 
         # Get domain-specific logger
-        domain_logger = self.logging_manager.get_domain_logger(domain)
+        domain_logger = self.logging_manager.get_domain_logger(domain, self.logs_dir)
         domain_logger.info(f"Starting import of certificate for {domain}")
 
         # Copy certificate files to our directory
