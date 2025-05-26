@@ -280,13 +280,13 @@ class LocalSSLManager:
             # Use the first domain as the name
             name = domains[0]
 
-        # Get domain-specific logger
-        domain_logger = self.logging_manager.get_domain_logger(name, self.logs_dir)
+        # Use main logger for overall multi-domain operations
+        self.logger.info(
+            f"""Setting up multi-domain certificate '{name}'
+            for {len(domains)} domains: {', '.join(domains)}"""
+        )
 
-        self.logger.info(f"Setting up multi-domain {name}...")
-        domain_logger.info(f"Starting setup for multi-domain {name}")
-
-        # Validate all domains
+        # Validate all domains first
         for domain in domains:
             is_valid, error = validate_domain(domain)
             if not is_valid:
@@ -300,50 +300,61 @@ class LocalSSLManager:
         if not is_valid_ip:
             raise ValueError(f"Invalid IP address: {ip_error}")
 
-        self.logger.info(
-            f"Setting up {len(domains)} domains with shared certificate..."
-        )
-
         # Set up browser trust
+        self.logger.info("Setting up browser trust...")
         trust_result = setup_browser_trust()
-        domain_logger.info(
-            f"Browser trust setup {'successful' if trust_result else 'failed'}"
-        )
+        if not trust_result:
+            self.logger.warning("Browser trust setup failed")
+        else:
+            self.logger.info("Browser trust setup successful")
 
         # Back up hosts file
+        self.logger.info("Backing up hosts file...")
         backup_hosts_file(self.hosts_backup)
-        domain_logger.info(f"Backed up hosts file to {self.hosts_backup}")
 
         # Update hosts file for all domains
+        self.logger.info(f"Adding {len(domains)} domains to hosts file...")
         for domain in domains:
             update_hosts_file(domain, ip_address)
+            self.logger.info(f"Added {domain} to hosts file with IP {ip_address}")
 
         # Create multi-domain certificate
         try:
             cert_path, key_path = create_multi_domain_certificate(
                 domains, self.certs_dir, name=name
             )
-            domain_logger.info(f"Created SSL certificate at {cert_path}")
+            self.logger.info(f"Multi-domain certificate created at {cert_path}")
         except Exception:
-            # Rollback hosts file change if certificate creation fails
+            # Rollback hosts file changes if certificate creation fails
+            self.logger.error(
+                "Certificate creation failed, rolling back hosts file changes..."
+            )
             try:
                 for domain in domains:
                     update_hosts_file(domain, ip_address, remove=True)
-                domain_logger.info(
-                    "Rolled back hosts file changes due to certificate creation failure"
-                )
+                    self.logger.info(f"Removed {domain} from hosts file (rollback)")
             except Exception as rollback_error:
-                domain_logger.error(
-                    f"Failed to rollback hosts file change: {rollback_error}"
+                self.logger.error(
+                    f"Failed to rollback hosts file changes: {rollback_error}"
                 )
 
             # Re-raise the original error
             raise
 
-        # Update metadata for each domain
+        # Update metadata for each domain and create domain-specific logs
         metadata = self._load_metadata()
+        self.logger.info("Updating metadata for all domains...")
 
         for domain in domains:
+            # Create domain-specific logger for this domain
+            domain_logger = get_domain_logger(domain, self.logs_dir)
+            domain_logger.info(
+                f"Domain {domain} added to multi-domain certificate '{name}'"
+            )
+            domain_logger.info(f"Certificate path: {cert_path}")
+            domain_logger.info(f"Key path: {key_path}")
+            domain_logger.info(f"Shared with domains: {', '.join(domains)}")
+
             log_path = self.logs_dir / f"{domain}.log"
 
             metadata[domain] = {
@@ -358,14 +369,9 @@ class LocalSSLManager:
                 "shared_with": domains,
             }
 
-            domain_logger.info(
-                f"Domain {domain} added to multi-domain certificate {name}"
-            )
-
         self._save_metadata(metadata)
-
         self.logger.info(
-            f"Multi-domain setup {name} complete for {len(domains)} domains"
+            f"Multi-domain setup '{name}' completed successfully for {len(domains)} domains"
         )
 
         return {
@@ -476,9 +482,12 @@ class LocalSSLManager:
         if domain not in metadata:
             raise ValueError(f"Certificate for {domain} not found")
 
-        # Get domain logger before we delete anything
-        domain_logger = self.logging_manager.get_domain_logger(domain, self.logs_dir)
-        domain_logger.info(f"Starting deletion of certificate for {domain}")
+        # Use main logger for overall operation
+        self.logger.info(f"Starting deletion of certificate for {domain}")
+
+        # Get domain-specific logger for detailed logging
+        domain_logger = get_domain_logger(domain, self.logs_dir)
+        domain_logger.info(f"Certificate deletion initiated for {domain}")
 
         # Get certificate data
         cert_data = metadata[domain]
@@ -489,66 +498,95 @@ class LocalSSLManager:
             is_multi_domain = cert_data.get("multi_domain", False)
 
             if is_multi_domain:
-                # Get list of domains sharing this certificate
+                multi_domain_name = cert_data.get("multi_domain_name", domain)
                 shared_with = cert_data.get("shared_with", [])
+
+                self.logger.info(
+                    f"Deleting domain {domain} from multi-domain certificate '{multi_domain_name}'"
+                )
+                domain_logger.info(
+                    f"""Part of multi-domain certificate '{multi_domain_name}'
+                    shared with: {', '.join(shared_with)}"""
+                )
 
                 # Remove this domain from hosts file
                 update_hosts_file(domain, ip_address, remove=True)
-                domain_logger.info(f"Removed {domain} from hosts file")
+                self.logger.info(f"Removed {domain} from hosts file")
+                domain_logger.info("Removed from hosts file")
 
                 # Remove from metadata
                 del metadata[domain]
                 self._save_metadata(metadata)
-                domain_logger.info("Removed domain from metadata")
+                domain_logger.info("Removed from certificate metadata")
 
                 # Only delete certificate files if this is the last domain using them
-                if not any(d in metadata for d in shared_with if d != domain):
+                remaining_domains = [
+                    d for d in shared_with if d in metadata and d != domain
+                ]
+                if not remaining_domains:
                     cert_path = Path(cert_data["cert_path"])
                     key_path = Path(cert_data["key_path"])
 
                     if cert_path.exists():
                         cert_path.unlink()
-                        domain_logger.info(f"Deleted certificate file: {cert_path}")
+                        self.logger.info(f"Deleted certificate file: {cert_path}")
+                        domain_logger.info(
+                            "Certificate file deleted (last domain using it)"
+                        )
 
                     if key_path.exists():
                         key_path.unlink()
-                        domain_logger.info(f"Deleted key file: {key_path}")
+                        self.logger.info(f"Deleted key file: {key_path}")
+                        domain_logger.info("Key file deleted (last domain using it)")
                 else:
+                    self.logger.info(
+                        f"""Certificate files preserved
+                        (still used by: {', '.join(remaining_domains)})"""
+                    )
                     domain_logger.info(
-                        "Certificate files not deleted as they are still used by other domains"
+                        f"""Certificate files preserved for
+                        remaining domains: {', '.join(remaining_domains)}"""
                     )
             else:
                 # Standard single-domain certificate
+                self.logger.info(f"Deleting single-domain certificate for {domain}")
+                domain_logger.info("Single-domain certificate deletion")
+
                 cert_path = Path(cert_data["cert_path"])
                 key_path = Path(cert_data["key_path"])
 
                 # Delete certificate files
                 if cert_path.exists():
                     cert_path.unlink()
-                    domain_logger.info(f"Deleted certificate file: {cert_path}")
+                    self.logger.info(f"Deleted certificate file: {cert_path}")
+                    domain_logger.info("Certificate file deleted")
 
                 if key_path.exists():
                     key_path.unlink()
-                    domain_logger.info(f"Deleted key file: {key_path}")
+                    self.logger.info(f"Deleted key file: {key_path}")
+                    domain_logger.info("Key file deleted")
 
                 # Remove domain from hosts file
                 update_hosts_file(domain, ip_address, remove=True)
-                domain_logger.info(f"Removed {domain} from hosts file")
+                self.logger.info(f"Removed {domain} from hosts file")
+                domain_logger.info("Removed from hosts file")
 
                 # Remove from metadata
                 del metadata[domain]
                 self._save_metadata(metadata)
-                domain_logger.info("Removed certificate from metadata")
+                domain_logger.info("Removed from certificate metadata")
 
-            # Log final deletion
-            domain_logger.info(f"Certificate for {domain} has been deleted")
+            # Final logging
+            domain_logger.info(
+                f"Certificate deletion completed successfully for {domain}"
+            )
             self.logger.info(f"Certificate for {domain} deleted successfully")
 
             return True
 
         except Exception as e:
-            domain_logger.error(f"Error deleting certificate: {e}")
             self.logger.error(f"Failed to delete certificate for {domain}: {e}")
+            domain_logger.error(f"Certificate deletion failed: {e}")
             return False
 
     def export_certificate(self, domain: str, export_dir: Path) -> Tuple[Path, Path]:
@@ -640,9 +678,13 @@ class LocalSSLManager:
         if not key_path.exists():
             raise FileNotFoundError(f"Key file not found: {key_path}")
 
-        # Get domain-specific logger
-        domain_logger = self.logging_manager.get_domain_logger(domain, self.logs_dir)
-        domain_logger.info(f"Starting import of certificate for {domain}")
+        # Use main logger for overall operation
+        self.logger.info(f"Starting certificate import for {domain}")
+
+        # Get domain-specific logger for detailed logging
+        domain_logger = get_domain_logger(domain, self.logs_dir)
+        domain_logger.info(f"Certificate import initiated from {cert_path}")
+        domain_logger.info(f"Key import initiated from {key_path}")
 
         # Copy certificate files to our directory
         local_cert_path = self.certs_dir / f"{domain}.crt"
@@ -651,18 +693,22 @@ class LocalSSLManager:
         shutil.copy2(cert_path, local_cert_path)
         shutil.copy2(key_path, local_key_path)
 
-        domain_logger.info(f"Copied certificate to {local_cert_path}")
-        domain_logger.info(f"Copied key to {local_key_path}")
+        self.logger.info(f"Certificate files copied to {self.certs_dir}")
+        domain_logger.info(f"Certificate copied to {local_cert_path}")
+        domain_logger.info(f"Key copied to {local_key_path}")
 
         # Update hosts file
         update_hosts_file(domain, ip_address)
-        domain_logger.info(f"Added {domain} to hosts file with IP {ip_address}")
+        self.logger.info(f"Added {domain} to hosts file with IP {ip_address}")
+        domain_logger.info(f"Added to hosts file with IP {ip_address}")
 
         # Get log file path
         log_path = self.logs_dir / f"{domain}.log"
 
         # Check certificate validity
+        self.logger.info("Validating imported certificate...")
         validity = check_certificate_validity(local_cert_path)
+        domain_logger.info(f"Certificate validation result: {validity['status']}")
 
         # Update metadata
         metadata = self._load_metadata()
@@ -679,11 +725,12 @@ class LocalSSLManager:
             "original_key_path": str(key_path),
         }
         self._save_metadata(metadata)
-        domain_logger.info("Updated certificate metadata")
+
+        self.logger.info("Certificate metadata updated")
+        domain_logger.info("Certificate successfully imported and configured")
 
         # Log completion
-        domain_logger.info("Certificate import completed successfully")
-        self.logger.info(f"Imported certificate for {domain}")
+        self.logger.info(f"Certificate import completed successfully for {domain}")
 
         # Return certificate information
         return {
