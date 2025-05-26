@@ -189,81 +189,76 @@ def check_certificate_validity(cert_path: Path) -> Dict[str, Any]:
     if not cert_path.exists():
         return {"status": "invalid", "error": "Certificate file not found"}
 
-    try:
-        import ssl
-        from datetime import datetime
+    # Try to use OpenSSL for detailed certificate information
+    from .system import check_command_exists, install_openssl
 
-        # Read the certificate
-        with open(cert_path, "rb") as f:
-            cert_data = f.read()
-
-        # Load the certificate
-        x509 = ssl.PEM_cert_to_DER_cert(cert_data.decode("utf-8"))
-        expiry_date = datetime.datetime.strptime(
-            x509.get_notAfter().decode(), "%Y%m%d%H%M%SZ"
-        )
-        print(expiry_date)
-
-        # Try to get basic info (this is limited without OpenSSL)
-        # For now, just return that it exists and is presumably valid
+    if not check_command_exists("openssl") and not install_openssl():
+        # Return basic info if OpenSSL unavailable
         return {
-            "status": "valid",
+            "status": "unknown",
             "subject": f"CN={cert_path.stem}",
             "issuer": "mkcert development CA",
-            "valid_from": "See certificate",
-            "valid_to": "See certificate",
+            "valid_from": "Install OpenSSL for details",
+            "valid_to": "Install OpenSSL for details",
             "domains": [cert_path.stem],
         }
 
-    except Exception as ssl_error:
-        logger.debug(f"Could not parse certificate with ssl module: {ssl_error}")
+    try:
+        # Get detailed certificate information using OpenSSL
+        result = subprocess.run(
+            ["openssl", "x509", "-in", str(cert_path), "-text", "-noout"],
+            capture_output=True,
+            text=True,
+            check=True,
+            encoding="utf-8",
+            errors="replace",
+        )
 
-        # Fall back to OpenSSL if available
-        if not check_command_exists("openssl"):
-            logger.warning("OpenSSL not found. Cannot check certificate details.")
-            # Return basic info without OpenSSL
-            return {
-                "status": "unknown",
-                "subject": f"CN={cert_path.stem}",
-                "issuer": "mkcert",
-                "valid_from": "Unknown",
-                "valid_to": "Unknown",
-                "domains": [cert_path.stem],
-            }
+        output = result.stdout
+        info = {
+            "status": "valid",
+            "subject": extract_field(output, "Subject:"),
+            "issuer": extract_field(output, "Issuer:"),
+            "valid_from": extract_field(output, "Not Before:"),
+            "valid_to": extract_field(output, "Not After :"),
+            "domains": extract_domains(output),
+        }
 
-        try:
-            # Use OpenSSL to get certificate information
-            result = subprocess.run(
-                ["openssl", "x509", "-in", str(cert_path), "-text", "-noout"],
-                capture_output=True,
-                text=True,
-                check=True,
-                encoding="utf-8",
-                errors="replace",
-            )
+        # Check if certificate is expired
+        valid_to_str = info["valid_to"]
+        if valid_to_str:
+            try:
+                import re
+                from datetime import datetime
 
-            output = result.stdout
+                date_match = re.search(
+                    r"(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})", valid_to_str
+                )
+                if date_match:
+                    expiry_date = datetime.strptime(
+                        date_match.group(1), "%b %d %H:%M:%S %Y"
+                    )
+                    if expiry_date < datetime.now():
+                        info["status"] = "expired"
+            except (ValueError, AttributeError):
+                pass  # Keep status as valid if date parsing fails
 
-            # Extract important information from output
-            info = {
-                "status": "valid",
-                "subject": extract_field(output, "Subject:"),
-                "issuer": extract_field(output, "Issuer:"),
-                "valid_from": extract_field(output, "Not Before:"),
-                "valid_to": extract_field(output, "Not After :"),
-                "domains": extract_domains(output),
-            }
+        return info
 
-            return info
+    except subprocess.SubprocessError as e:
+        logger.warning(f"OpenSSL certificate check failed: {e}")
+        return {
+            "status": "unknown",
+            "subject": f"CN={cert_path.stem}",
+            "issuer": "Unable to determine",
+            "valid_from": "Unable to determine",
+            "valid_to": "Unable to determine",
+            "domains": [cert_path.stem],
+        }
 
-        except subprocess.SubprocessError as e:
-            error_msg = e.stderr if hasattr(e, "stderr") else str(e)
-            logger.error(f"Failed to check certificate: {error_msg}")
-            return {"status": "invalid", "error": error_msg}
-
-        except Exception as e:
-            logger.error(f"Error checking certificate: {e}")
-            return {"status": "invalid", "error": str(e)}
+    except Exception as e:
+        logger.error(f"Certificate validation error: {e}")
+        return {"status": "invalid", "error": str(e)}
 
 
 def extract_field(text: str, field_name: str) -> str:

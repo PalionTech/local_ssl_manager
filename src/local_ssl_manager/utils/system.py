@@ -706,3 +706,149 @@ def setup_browser_trust() -> bool:
     except Exception as e:
         logger.error(f"Failed to set up browser trust: {e}")
         return False
+
+
+def install_openssl() -> bool:
+    """
+    Install OpenSSL if it's not already installed.
+
+    Returns:
+        True if OpenSSL is available after this function runs
+    """
+    if check_command_exists("openssl"):
+        logger.info("OpenSSL is already installed")
+        return True
+
+    logger.info("OpenSSL not found. Attempting to install...")
+    system = platform.system()
+
+    try:
+        if system == "Windows":
+            return _install_openssl_windows()
+        elif system == "Darwin":  # macOS
+            return _install_openssl_macos()
+        elif system == "Linux":
+            return _install_openssl_linux()
+        else:
+            logger.warning(f"Unsupported system: {system}")
+            return False
+
+    except Exception as e:
+        logger.error(f"Failed to install OpenSSL: {e}")
+        return False
+
+
+def _install_openssl_windows() -> bool:
+    """Install OpenSSL on Windows using Git for Windows (most reliable method)."""
+    # First, try common locations where OpenSSL might already exist
+    common_paths = [
+        "C:/Program Files/Git/usr/bin/openssl.exe",
+        "C:/Program Files (x86)/Git/usr/bin/openssl.exe",
+        "C:/msys64/usr/bin/openssl.exe",
+        "C:/Windows/System32/openssl.exe",
+    ]
+
+    for path in common_paths:
+        if Path(path).exists():
+            # Add to PATH for current session
+            bin_dir = str(Path(path).parent)
+            current_path = os.environ.get("PATH", "")
+            if bin_dir not in current_path:
+                os.environ["PATH"] = f"{current_path};{bin_dir}"
+                logger.info(f"Found OpenSSL at {path}")
+                return True
+
+    # If Git for Windows is installed, it includes OpenSSL
+    git_paths = ["C:/Program Files/Git/usr/bin", "C:/Program Files (x86)/Git/usr/bin"]
+
+    for git_path in git_paths:
+        openssl_path = Path(git_path) / "openssl.exe"
+        if openssl_path.exists():
+            current_path = os.environ.get("PATH", "")
+            if git_path not in current_path:
+                os.environ["PATH"] = f"{current_path};{git_path}"
+                logger.info(f"Using OpenSSL from Git installation: {openssl_path}")
+                return True
+
+    # Try package managers if available
+    if check_command_exists("choco"):
+        try:
+            subprocess.run(
+                ["choco", "install", "openssl", "-y"], check=True, capture_output=True
+            )
+            return check_command_exists("openssl")
+        except subprocess.SubprocessError:
+            pass
+
+    if check_command_exists("scoop"):
+        try:
+            subprocess.run(
+                ["scoop", "install", "openssl"], check=True, capture_output=True
+            )
+            return check_command_exists("openssl")
+        except subprocess.SubprocessError:
+            pass
+
+    # Provide clear installation instructions
+    logger.warning(
+        "OpenSSL not found. Please install using one of these methods:\n"
+        "  1. Install Git for Windows (includes OpenSSL): https://git-scm.com/download/win\n"
+        "  2. Download OpenSSL directly: https://slproweb.com/products/Win32OpenSSL.html\n"
+        "  3. Use Chocolatey: choco install openssl\n"
+        "  4. Use Scoop: scoop install openssl"
+    )
+    return False
+
+
+def _install_openssl_macos() -> bool:
+    """Install OpenSSL on macOS."""
+    if check_command_exists("brew"):
+        try:
+            subprocess.run(["brew", "install", "openssl"], check=True)
+
+            # Add Homebrew paths to current session
+            homebrew_paths = ["/opt/homebrew/bin", "/usr/local/bin"]
+            current_path = os.environ.get("PATH", "")
+
+            for path in homebrew_paths:
+                if Path(path).exists() and path not in current_path:
+                    os.environ["PATH"] = f"{path}:{current_path}"
+
+            return check_command_exists("openssl")
+        except subprocess.SubprocessError:
+            pass
+
+    logger.warning(
+        """Please install OpenSSL manually:\n
+          1. Install Homebrew: /bin/bash -c
+          '$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)'\n
+          2. Install OpenSSL: brew install openssl"""
+    )
+    return False
+
+
+def _install_openssl_linux() -> bool:
+    """Install OpenSSL on Linux."""
+    package_managers = [
+        (
+            ["apt"],
+            ["sudo", "apt", "update"],
+            ["sudo", "apt", "install", "-y", "openssl"],
+        ),
+        (["dnf"], None, ["sudo", "dnf", "install", "-y", "openssl"]),
+        (["yum"], None, ["sudo", "yum", "install", "-y", "openssl"]),
+        (["pacman"], None, ["sudo", "pacman", "-S", "--noconfirm", "openssl"]),
+    ]
+
+    for check_cmd, update_cmd, install_cmd in package_managers:
+        if check_command_exists(check_cmd[0]):
+            try:
+                if update_cmd:
+                    subprocess.run(update_cmd, check=True, capture_output=True)
+                subprocess.run(install_cmd, check=True, capture_output=True)
+                return check_command_exists("openssl")
+            except subprocess.SubprocessError:
+                continue
+
+    logger.warning("Please install OpenSSL using your distribution's package manager")
+    return False
