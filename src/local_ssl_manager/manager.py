@@ -482,12 +482,9 @@ class LocalSSLManager:
         if domain not in metadata:
             raise ValueError(f"Certificate for {domain} not found")
 
-        # Use main logger for overall operation
-        self.logger.info(f"Starting deletion of certificate for {domain}")
-
-        # Get domain-specific logger for detailed logging
+        # Get domain logger before we delete anything
         domain_logger = get_domain_logger(domain, self.logs_dir)
-        domain_logger.info(f"Certificate deletion initiated for {domain}")
+        domain_logger.info(f"Starting deletion of certificate for {domain}")
 
         # Get certificate data
         cert_data = metadata[domain]
@@ -498,95 +495,69 @@ class LocalSSLManager:
             is_multi_domain = cert_data.get("multi_domain", False)
 
             if is_multi_domain:
-                multi_domain_name = cert_data.get("multi_domain_name", domain)
+                # Get list of domains sharing this certificate
                 shared_with = cert_data.get("shared_with", [])
-
-                self.logger.info(
-                    f"Deleting domain {domain} from multi-domain certificate '{multi_domain_name}'"
-                )
-                domain_logger.info(
-                    f"""Part of multi-domain certificate '{multi_domain_name}'
-                    shared with: {', '.join(shared_with)}"""
-                )
 
                 # Remove this domain from hosts file
                 update_hosts_file(domain, ip_address, remove=True)
-                self.logger.info(f"Removed {domain} from hosts file")
-                domain_logger.info("Removed from hosts file")
+                domain_logger.info(f"Removed {domain} from hosts file")
 
                 # Remove from metadata
                 del metadata[domain]
                 self._save_metadata(metadata)
-                domain_logger.info("Removed from certificate metadata")
+                domain_logger.info("Removed domain from metadata")
 
                 # Only delete certificate files if this is the last domain using them
-                remaining_domains = [
-                    d for d in shared_with if d in metadata and d != domain
-                ]
-                if not remaining_domains:
+                if not any(d in metadata for d in shared_with if d != domain):
                     cert_path = Path(cert_data["cert_path"])
                     key_path = Path(cert_data["key_path"])
 
                     if cert_path.exists():
                         cert_path.unlink()
-                        self.logger.info(f"Deleted certificate file: {cert_path}")
-                        domain_logger.info(
-                            "Certificate file deleted (last domain using it)"
-                        )
+                        domain_logger.info(f"Deleted certificate file: {cert_path}")
 
                     if key_path.exists():
                         key_path.unlink()
-                        self.logger.info(f"Deleted key file: {key_path}")
-                        domain_logger.info("Key file deleted (last domain using it)")
+                        domain_logger.info(f"Deleted key file: {key_path}")
                 else:
-                    self.logger.info(
-                        f"""Certificate files preserved
-                        (still used by: {', '.join(remaining_domains)})"""
-                    )
                     domain_logger.info(
-                        f"""Certificate files preserved for
-                        remaining domains: {', '.join(remaining_domains)}"""
+                        "Certificate files not deleted as they are still used by other domains"
                     )
             else:
-                # Standard single-domain certificate
-                self.logger.info(f"Deleting single-domain certificate for {domain}")
-                domain_logger.info("Single-domain certificate deletion")
+                # Log that we're deleting a single-domain certificate
+                domain_logger.info(f"Deleting single-domain certificate for {domain}")
 
+                # Standard single-domain certificate
                 cert_path = Path(cert_data["cert_path"])
                 key_path = Path(cert_data["key_path"])
 
                 # Delete certificate files
                 if cert_path.exists():
                     cert_path.unlink()
-                    self.logger.info(f"Deleted certificate file: {cert_path}")
-                    domain_logger.info("Certificate file deleted")
+                    domain_logger.info(f"Deleted certificate file: {cert_path}")
 
                 if key_path.exists():
                     key_path.unlink()
-                    self.logger.info(f"Deleted key file: {key_path}")
-                    domain_logger.info("Key file deleted")
+                    domain_logger.info(f"Deleted key file: {key_path}")
 
                 # Remove domain from hosts file
                 update_hosts_file(domain, ip_address, remove=True)
-                self.logger.info(f"Removed {domain} from hosts file")
-                domain_logger.info("Removed from hosts file")
+                domain_logger.info(f"Removed {domain} from hosts file")
 
                 # Remove from metadata
                 del metadata[domain]
                 self._save_metadata(metadata)
-                domain_logger.info("Removed from certificate metadata")
+                domain_logger.info("Removed certificate from metadata")
 
-            # Final logging
-            domain_logger.info(
-                f"Certificate deletion completed successfully for {domain}"
-            )
+            # Log final deletion
+            domain_logger.info(f"Certificate for {domain} has been deleted")
             self.logger.info(f"Certificate for {domain} deleted successfully")
 
             return True
 
         except Exception as e:
+            domain_logger.error(f"Error deleting certificate: {e}")
             self.logger.error(f"Failed to delete certificate for {domain}: {e}")
-            domain_logger.error(f"Certificate deletion failed: {e}")
             return False
 
     def export_certificate(self, domain: str, export_dir: Path) -> Tuple[Path, Path]:

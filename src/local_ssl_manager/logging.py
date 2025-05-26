@@ -22,6 +22,8 @@ def configure_logging(
 
     Args:
         logs_dir: Directory where log files will be stored
+        log_level: Logging level
+        console_output: Whether to output to console
     """
     # Ensure logs directory exists
     logs_dir.mkdir(parents=True, exist_ok=True)
@@ -33,6 +35,7 @@ def configure_logging(
     for handler in list(logger.handlers):
         # Keep null handlers as a fallback
         if not isinstance(handler, logging.NullHandler):
+            handler.close()  # Properly close file handles
             logger.removeHandler(handler)
 
     # Set level
@@ -69,6 +72,27 @@ def configure_logging(
         print(f"Warning: Could not set up log file: {e}")
 
 
+def shutdown_logging() -> None:
+    """
+    Shutdown logging and close all file handlers.
+    Useful for tests to ensure file handles are released.
+    """
+    logger = logging.getLogger("local_ssl_manager")
+
+    for handler in list(logger.handlers):
+        if not isinstance(handler, logging.NullHandler):
+            handler.close()
+            logger.removeHandler(handler)
+
+    # Also close any domain-specific loggers
+    for name in list(logging.Logger.manager.loggerDict.keys()):
+        if name.startswith("local_ssl_manager.domain."):
+            domain_logger = logging.getLogger(name)
+            for handler in list(domain_logger.handlers):
+                handler.close()
+                domain_logger.removeHandler(handler)
+
+
 def get_domain_logger(domain: str, logs_dir: Path) -> logging.Logger:
     """
     Get a domain-specific logger.
@@ -89,6 +113,7 @@ def get_domain_logger(domain: str, logs_dir: Path) -> logging.Logger:
 
     # Remove existing handlers to avoid duplicates
     for handler in list(logger.handlers):
+        handler.close()  # Properly close file handles
         logger.removeHandler(handler)
 
     # Configure the logger

@@ -3,14 +3,17 @@ Tests for the LocalSSLManager class.
 """
 
 import json
+import os
 import shutil
 import tempfile
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest import mock
 
 import pytest
 
+from local_ssl_manager.logging import shutdown_logging
 from local_ssl_manager.manager import LocalSSLManager
 
 
@@ -19,14 +22,55 @@ def temp_dir():
     """Create a temporary directory for tests."""
     temp_dir = tempfile.mkdtemp()
     yield Path(temp_dir)
-    shutil.rmtree(temp_dir)
+
+    # Clean up logging before attempting to remove directory
+    shutdown_logging()
+
+    # Try to remove the directory, with retries for Windows
+    for attempt in range(3):
+        try:
+            shutil.rmtree(temp_dir)
+            break
+        except PermissionError:
+            if attempt < 2:  # Don't sleep on the last attempt
+                time.sleep(0.1)  # Brief pause to allow handles to close
+    else:
+        # If we still can't delete, try to remove files individually
+        try:
+            for root, dirs, files in os.walk(temp_dir, topdown=False):
+                for name in files:
+                    file_path = os.path.join(root, name)
+                    try:
+                        os.chmod(file_path, 0o777)
+                        os.remove(file_path)
+                    except (OSError, PermissionError) as e:
+                        print(f"Warning: Could not remove file {file_path}: {e}")
+
+                for name in dirs:
+                    dir_path = os.path.join(root, name)
+                    try:
+                        os.rmdir(dir_path)
+                    except (OSError, PermissionError) as e:
+                        print(f"Warning: Could not remove directory {dir_path}: {e}")
+
+            # Try to remove the root directory
+            os.rmdir(temp_dir)
+        except (OSError, PermissionError) as e:
+            # If all else fails, at least log what went wrong
+            print(
+                f"Warning: Could not fully clean up temporary directory {temp_dir}: {e}"
+            )
+            # Don't raise - this is cleanup code and shouldn't fail tests
 
 
 @pytest.fixture
 def ssl_manager(temp_dir):
     """Create a LocalSSLManager instance with a temporary base directory."""
     manager = LocalSSLManager(base_dir=temp_dir)
-    return manager
+    yield manager
+
+    # Clean up logging when done
+    shutdown_logging()
 
 
 class TestLocalSSLManager:
