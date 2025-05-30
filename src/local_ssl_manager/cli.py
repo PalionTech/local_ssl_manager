@@ -207,7 +207,7 @@ def cli(
 
     ctx.obj.quiet = quiet
 
-    # Set the log level based on flags (debug > verbose > normal > quiet)
+    # Set the log level based on flags (debug > info > warning)
     if quiet:
         ctx.obj.log_leve = logging.WARNING
         ctx.boj.verbose = True
