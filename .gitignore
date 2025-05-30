@@ -11,6 +11,8 @@ claude_pyrojects.config
 claude_pyrojects.ignore
 claude_pyrojects.key
 
+test_server
+
 # Distribution / packaging
 build/
 develop-eggs/

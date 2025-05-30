@@ -15,7 +15,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 # Import the logger
 from ..logging import get_logger
@@ -393,7 +393,7 @@ def _download_mkcert_windows() -> str:
             # Add to PATH for current session
             current_path = os.environ.get("PATH", "")
             if str(target_dir) not in current_path:
-                os.environ["PATH"] = f"{current_path};{target_dir}"
+                os.environ["PATH"] = f"{current_path}{os.pathsep}{target_dir}"
 
             logger.info(f"mkcert installed to {target_path}")
 
@@ -413,7 +413,7 @@ def _download_mkcert_windows() -> str:
             # Add to PATH for current session
             current_path = os.environ.get("PATH", "")
             if str(local_dir) not in current_path:
-                os.environ["PATH"] = f"{current_path};{local_dir}"
+                os.environ["PATH"] = f"{current_path}{os.pathsetp}{local_dir}"
 
             logger.info(f"mkcert installed to {target_path}")
 
@@ -583,131 +583,6 @@ def _run_mkcert_install_elevated_windows(mkcert_cmd: str) -> bool:
         return False
 
 
-def setup_browser_trust() -> bool:
-    """
-    Set up browser trust for self-signed certificates.
-
-    This initializes mkcert's CA and adds it to system and browser trust stores.
-
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        # Ensure mkcert is installed
-        if not check_command_exists("mkcert") and not install_mkcert():
-            logger.error("Cannot set up browser trust without mkcert")
-            # On Windows, provide more detailed error message
-            if platform.system() == "Windows":
-                logger.error(
-                    "Failed to install mkcert automatically. Please install manually:"
-                )
-                logger.error(
-                    "  1. Download from: https://github.com/FiloSottile/mkcert/releases"
-                )
-                logger.error("  2. Or install via Chocolatey: choco install mkcert")
-                logger.error("  3. Ensure mkcert.exe is in your PATH")
-            return False
-
-        # Get the correct mkcert command
-        mkcert_cmd = get_mkcert_command()
-
-        # Initialize mkcert CA
-        logger.info("Setting up root CA certificate...")
-
-        # On Windows, try different approaches
-        if platform.system() == "Windows":
-            # First try normal execution
-            result = subprocess.run(
-                [mkcert_cmd, "-install"],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=False,
-            )
-
-            if result.returncode != 0:
-                if (
-                    "The request is not supported" in result.stderr
-                    or "access denied" in result.stderr.lower()
-                ):
-                    logger.info("Attempting to install CA with elevated privileges...")
-
-                    # Try with elevation
-                    if _run_mkcert_install_elevated_windows(mkcert_cmd):
-                        logger.info(
-                            "Successfully installed CA with elevated privileges"
-                        )
-                    else:
-                        logger.warning(
-                            "Failed to add certificate to system store (permission denied)."
-                        )
-                        logger.warning(
-                            "Certificate will still work but you may see browser warnings."
-                        )
-                        logger.info(
-                            "To fix this, run 'mkcert -install' as Administrator manually."
-                        )
-                else:
-                    # Other errors should still fail
-                    raise subprocess.CalledProcessError(
-                        result.returncode, result.args, result.stdout, result.stderr
-                    )
-        else:
-            # Non-Windows systems
-            subprocess.run(
-                [mkcert_cmd, "-install"], check=True, encoding="utf-8", errors="replace"
-            )
-
-        # Get the CA root path
-        ca_root = subprocess.run(
-            [mkcert_cmd, "-CAROOT"],
-            capture_output=True,
-            text=True,
-            check=True,
-            encoding="utf-8",
-            errors="replace",
-        ).stdout.strip()
-
-        root_ca_path = Path(ca_root) / "rootCA.pem"
-
-        if not root_ca_path.exists():
-            logger.error(f"Root CA certificate not found at: {root_ca_path}")
-            return False
-
-        logger.info(f"Root CA certificate found at: {root_ca_path}")
-
-        # On macOS, add to System keychain for better trust
-        system = platform.system()
-        if system == "Darwin" and check_admin_privileges():
-            try:
-                subprocess.run(
-                    [
-                        "security",
-                        "add-trusted-cert",
-                        "-d",
-                        "-r",
-                        "trustRoot",
-                        "-k",
-                        "/Library/Keychains/System.keychain",
-                        str(root_ca_path),
-                    ],
-                    check=True,
-                    encoding="utf-8",
-                    errors="replace",
-                )
-                logger.info("Added root certificate to System keychain")
-            except subprocess.SubprocessError as e:
-                logger.warning(f"Could not add to System keychain: {e}")
-
-        logger.info("Root certificate setup completed")
-        return True
-
-    except Exception as e:
-        logger.error(f"Failed to set up browser trust: {e}")
-        return False
-
-
 def install_openssl() -> bool:
     """
     Install OpenSSL if it's not already installed.
@@ -754,7 +629,7 @@ def _install_openssl_windows() -> bool:
             bin_dir = str(Path(path).parent)
             current_path = os.environ.get("PATH", "")
             if bin_dir not in current_path:
-                os.environ["PATH"] = f"{current_path};{bin_dir}"
+                os.environ["PATH"] = f"{current_path}{os.pathsep}{bin_dir}"
                 logger.info(f"Found OpenSSL at {path}")
                 return True
 
@@ -766,7 +641,7 @@ def _install_openssl_windows() -> bool:
         if openssl_path.exists():
             current_path = os.environ.get("PATH", "")
             if git_path not in current_path:
-                os.environ["PATH"] = f"{current_path};{git_path}"
+                os.environ["PATH"] = f"{current_path}{os.pathsetp}{git_path}"
                 logger.info(f"Using OpenSSL from Git installation: {openssl_path}")
                 return True
 
@@ -852,3 +727,428 @@ def _install_openssl_linux() -> bool:
 
     logger.warning("Please install OpenSSL using your distribution's package manager")
     return False
+
+
+def setup_browser_trust() -> bool:
+    """
+    Set up browser trust for self-signed certificates.
+    Works in both GUI and headless environments.
+    """
+    try:
+        # Ensure mkcert is installed
+        if not check_command_exists("mkcert") and not install_mkcert():
+            logger.error("Cannot set up browser trust without mkcert")
+            return False
+
+        mkcert_cmd = get_mkcert_command()
+        system = platform.system()
+
+        logger.info("Setting up root CA certificate...")
+
+        if system == "Windows":
+            # Use direct certificate store manipulation for Windows
+            return _setup_browser_trust_windows_direct(mkcert_cmd)
+        else:
+            # Standard approach for macOS/Linux
+            try:
+                subprocess.run(
+                    [mkcert_cmd, "-install"],
+                    check=True,
+                    encoding="utf-8",
+                    errors="replace",
+                )
+                return _verify_ca_installation(mkcert_cmd)
+            except subprocess.CalledProcessError as e:
+                logger.error(f"Failed to install CA on {system}: {e}")
+                return False
+
+    except Exception as e:
+        logger.error(f"Failed to set up browser trust: {e}")
+        return False
+
+
+def _setup_browser_trust_windows_direct(mkcert_cmd: str) -> bool:
+    """
+    Direct Windows certificate store installation without UAC prompts.
+    """
+    try:
+        # Step 1: Ensure CA certificate files exist
+        logger.info("Ensuring CA certificate exists...")
+        if not _ensure_ca_certificate_exists(mkcert_cmd):
+            logger.error("Failed to create CA certificate")
+            return False
+
+        # Step 2: Get certificate path
+        ca_cert_path = _get_ca_certificate_path(mkcert_cmd)
+        if not ca_cert_path:
+            logger.error("Could not locate CA certificate")
+            return False
+
+        logger.info(f"Found CA certificate at: {ca_cert_path}")
+
+        # Step 3: Try direct installation methods
+        methods = [
+            ("PowerShell Import-Certificate", _install_via_powershell_direct),
+            ("Windows certutil", _install_via_certutil),
+            ("PowerShell script", _install_via_powershell_script),
+        ]
+
+        for method_name, method_func in methods:
+            logger.info(f"Trying {method_name}...")
+            try:
+                if method_func(mkcert_cmd):
+                    logger.info(f"Successfully installed CA via {method_name}")
+                    return True
+                else:
+                    logger.warning(f"{method_name} failed, trying next method...")
+            except Exception as e:
+                logger.warning(f"{method_name} encountered error: {e}")
+                continue
+
+        logger.error("All installation methods failed")
+        return False
+
+    except Exception as e:
+        logger.error(f"Windows CA setup failed: {e}")
+        return False
+
+
+def _install_via_powershell_direct(mkcert_cmd: str) -> bool:
+    """
+    Use PowerShell Import-Certificate cmdlet directly.
+    This is the most reliable method for headless environments.
+    """
+    try:
+        # First ensure CA certificate exists
+        if not _ensure_ca_certificate_exists(mkcert_cmd):
+            return False
+
+        # Get CA certificate path
+        ca_cert_path = _get_ca_certificate_path(mkcert_cmd)
+        if not ca_cert_path:
+            return False
+
+        logger.info("Installing CA certificate via PowerShell...")
+
+        # PowerShell command to import certificate
+        ps_command = f"""
+        try {{
+            $cert = Import-Certificate -FilePath '{ca_cert_path}' `
+                -CertStoreLocation 'Cert:\\LocalMachine\\Root' `
+                -ErrorAction Stop
+            Write-Host "Certificate imported successfully: $($cert.Thumbprint)"
+            exit 0
+        }} catch {{
+            Write-Error "Failed to import certificate: $($_.Exception.Message)"
+            exit 1
+        }}
+        """  # noqa: E272 E221 E202
+
+        result = subprocess.run(
+            ["powershell", "-ExecutionPolicy", "Bypass", "-Command", ps_command],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        if result.returncode == 0:
+            logger.info("CA certificate installed successfully via PowerShell")
+            return _verify_certificate_in_store(ca_cert_path)
+        else:
+            logger.warning(f"PowerShell import failed: {result.stderr}")
+            return False
+
+    except Exception as e:
+        logger.warning(f"PowerShell direct import failed: {e}")
+        return False
+
+
+def _install_via_certutil(mkcert_cmd: str) -> bool:
+    """
+    Use Windows certutil command to install CA certificate.
+    This works in most Windows environments including headless.
+    """
+    try:
+        if not _ensure_ca_certificate_exists(mkcert_cmd):
+            return False
+
+        ca_cert_path = _get_ca_certificate_path(mkcert_cmd)
+        if not ca_cert_path:
+            return False
+
+        logger.info("Installing CA certificate via certutil...")
+
+        # Use certutil to add certificate to Root store
+        result = subprocess.run(
+            ["certutil", "-addstore", "-f", "Root", ca_cert_path],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        if result.returncode == 0:
+            logger.info("CA certificate installed successfully via certutil")
+            return _verify_certificate_in_store(ca_cert_path)
+        else:
+            logger.warning(f"certutil failed: {result.stderr}")
+            return False
+
+    except Exception as e:
+        logger.warning(f"certutil installation failed: {e}")
+        return False
+
+
+def _install_via_powershell_script(mkcert_cmd: str) -> bool:
+    """
+    Create a temporary PowerShell script and execute it.
+    This can sometimes work when direct commands fail.
+    """
+    try:
+        if not _ensure_ca_certificate_exists(mkcert_cmd):
+            return False
+
+        ca_cert_path = _get_ca_certificate_path(mkcert_cmd)
+        if not ca_cert_path:
+            return False
+
+        # Create temporary PowerShell script
+        script_content = f"""
+# PowerShell script to install CA certificate
+try {{
+    Write-Host "Importing certificate from: {ca_cert_path}"
+
+    # Load certificate
+    $cert = New-Object `
+        System.Security.Cryptography.X509Certificates.X509Certificate2('{ca_cert_path}')
+    Write-Host "Certificate loaded: $($cert.Subject)"
+
+    # Open certificate store
+    $store = New-Object `
+        System.Security.Cryptography.X509Certificates.X509Store( `
+        [System.Security.Cryptography.X509Certificates.StoreName]::Root, `
+        [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+    $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+
+    # Add certificate
+    $store.Add($cert)
+    $store.Close()
+
+    Write-Host "Certificate installed successfully"
+    exit 0
+}} catch {{
+    Write-Error "Error: $($_.Exception.Message)"
+    exit 1
+}}
+        """  # noqa: E201
+
+        # Write script to temporary file
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".ps1", delete=False) as f:
+            f.write(script_content)
+            script_path = f.name
+
+        try:
+            # Execute script
+            result = subprocess.run(
+                ["powershell", "-ExecutionPolicy", "Bypass", "-File", script_path],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+
+            if result.returncode == 0:
+                logger.info("CA certificate installed via PowerShell script")
+                return _verify_certificate_in_store(ca_cert_path)
+            else:
+                logger.warning(f"PowerShell script failed: {result.stderr}")
+                return False
+
+        finally:
+            # Clean up script file
+            try:
+                Path(script_path).unlink()
+            except Exception:
+                pass
+
+    except Exception as e:
+        logger.warning(f"PowerShell script installation failed: {e}")
+        return False
+
+
+def _ensure_ca_certificate_exists(mkcert_cmd: str) -> bool:
+    """
+    Ensure the mkcert CA certificate exists without installing it to system.
+    """
+    try:
+        # Get CA root directory
+        result = subprocess.run(
+            [mkcert_cmd, "-CAROOT"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        if result.returncode != 0:
+            logger.error("Failed to get mkcert CA root directory")
+            return False
+
+        ca_root = result.stdout.strip()
+        ca_cert_path = Path(ca_root) / "rootCA.pem"
+
+        # If certificate doesn't exist, create it
+        if not ca_cert_path.exists():
+            logger.info("Creating mkcert CA certificate...")
+
+            # Create CA without installing to system
+            # This command creates the CA files but doesn't install to system store
+            subprocess.run(
+                [mkcert_cmd, "-install"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,  # Short timeout to avoid hanging on UAC
+            )
+
+            # Check if files were created (ignore return code)
+            if not ca_cert_path.exists():
+                logger.error("Failed to create CA certificate files")
+                return False
+
+        logger.info(f"CA certificate available at: {ca_cert_path}")
+        return True
+
+    except subprocess.TimeoutExpired:
+        # Check if files were created despite timeout
+        try:
+            result = subprocess.run(
+                [mkcert_cmd, "-CAROOT"], capture_output=True, text=True
+            )
+            if result.returncode == 0:
+                ca_root = result.stdout.strip()
+                return Path(ca_root, "rootCA.pem").exists()
+        except Exception:
+            pass
+        return False
+
+    except Exception as e:
+        logger.error(f"Error ensuring CA certificate exists: {e}")
+        return False
+
+
+def _get_ca_certificate_path(mkcert_cmd: str) -> Optional[str]:
+    """
+    Get the path to the mkcert CA certificate.
+    """
+    try:
+        result = subprocess.run(
+            [mkcert_cmd, "-CAROOT"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
+
+        ca_root = result.stdout.strip()
+        ca_cert_path = Path(ca_root) / "rootCA.pem"
+
+        if ca_cert_path.exists():
+            return str(ca_cert_path)
+        else:
+            logger.error(f"CA certificate not found at: {ca_cert_path}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Failed to get CA certificate path: {e}")
+        return None
+
+
+def _verify_certificate_in_store(cert_path: str) -> bool:
+    """
+    Verify that the certificate was successfully installed in Windows certificate store.
+    """
+    try:
+        # Use PowerShell to check if certificate is in store
+        ps_command = f"""
+        try {{
+            $cert = New-Object `
+                System.Security.Cryptography.X509Certificates.X509Certificate2('{cert_path}')
+            $store = New-Object `
+                System.Security.Cryptography.X509Certificates.X509Store( `
+                [System.Security.Cryptography.X509Certificates.StoreName]::Root, `
+                [System.Security.Cryptography.X509Certificates.StoreLocation]::LocalMachine)
+            $store.Open([System.Security.Cryptography.X509Certificates.OpenFlags]::ReadOnly)
+
+            $found = $false
+            foreach ($storeCert in $store.Certificates) {{
+                if ($storeCert.Thumbprint -eq $cert.Thumbprint) {{
+                    $found = $true
+                    break
+                }}
+            }}
+
+            $store.Close()
+
+            if ($found) {{
+                Write-Host "Certificate found in store"
+                exit 0
+            }} else {{
+                Write-Host "Certificate not found in store"
+                exit 1
+            }}
+        }} catch {{
+            Write-Error "Verification failed: $($_.Exception.Message)"
+            exit 1
+        }}
+        """  # noqa: E713
+
+        result = subprocess.run(
+            ["powershell", "-Command", ps_command],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+        )
+
+        success = result.returncode == 0
+        if success:
+            logger.info("Certificate installation verified")
+        else:
+            logger.warning("Certificate not found in Windows certificate store")
+
+        return success
+
+    except Exception as e:
+        logger.warning(f"Certificate verification failed: {e}")
+        return False
+
+
+def _verify_ca_installation(mkcert_cmd: str) -> bool:
+    """Verify that the CA was properly installed."""
+    try:
+        # Get CA root path
+        result = subprocess.run(
+            [mkcert_cmd, "-CAROOT"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
+        ca_root = result.stdout.strip()
+        root_ca_path = Path(ca_root) / "rootCA.pem"
+
+        if not root_ca_path.exists():
+            logger.error("Root CA certificate file not found")
+            return False
+
+        logger.info(f"Root CA certificate verified at: {root_ca_path}")
+        return True
+
+    except Exception as e:
+        logger.error(f"CA verification failed: {e}")
+        return False
