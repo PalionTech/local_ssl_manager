@@ -34,7 +34,7 @@ class AppContext:
         self.verbose: bool = False
         self.quiet: bool = False
         self.base_dir: Optional[Path] = None
-        self.log_level: int = logging.INFO
+        self.log_level: int = logging.WARNING
 
 
 def print_error(message: str) -> None:
@@ -208,16 +208,16 @@ def cli(
     ctx.obj.quiet = quiet
 
     # Set the log level based on flags (debug > verbose > normal > quiet)
-    if debug:
-        ctx.obj.log_leve = logging.DEBUG
+    if quiet:
+        ctx.obj.log_leve = logging.WARNING
         ctx.boj.verbose = True
     elif verbose:
         ctx.obj.log_level = logging.INFO
         ctx.obj.verbose = True
-    elif quiet:
-        ctx.obj.log_level = logging.WARNING
+    elif debug:
+        ctx.obj.log_level = logging.DEBUG
     else:
-        ctx.obj.log_level = logging.INFO
+        ctx.obj.log_level = logging.WARNING
 
     # Store base directory
     if base_dir:
