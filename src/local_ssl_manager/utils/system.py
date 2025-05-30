@@ -540,49 +540,6 @@ def get_mkcert_command() -> str:
     return "mkcert"
 
 
-def _run_mkcert_install_elevated_windows(mkcert_cmd: str) -> bool:
-    """
-    Try to run mkcert -install with elevation on Windows.
-
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        # Create a temporary PowerShell script to run mkcert -install as admin
-        ps_script = f"""
-        Start-Process -FilePath "{mkcert_cmd}" -ArgumentList "-install" -Verb RunAs -Wait
-        """
-
-        # Run the PowerShell script
-        subprocess.run(
-            ["powershell", "-Command", ps_script],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-
-        # Check if it worked by verifying the CA exists
-        ca_root_result = subprocess.run(
-            [mkcert_cmd, "-CAROOT"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-        )
-
-        if ca_root_result.returncode == 0:
-            ca_root = ca_root_result.stdout.strip()
-            root_ca_path = Path(ca_root) / "rootCA.pem"
-            return root_ca_path.exists()
-
-        return False
-
-    except Exception as e:
-        logger.error(f"Failed to run mkcert with elevation: {e}")
-        return False
-
-
 def install_openssl() -> bool:
     """
     Install OpenSSL if it's not already installed.
