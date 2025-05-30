@@ -39,7 +39,7 @@ def configure_logging(
             logger.removeHandler(handler)
 
     # Set level
-    logger.setLevel(logging.WARN)
+    logger.setLevel(logging.WARNING)
 
     # Console handler - user-facing logs (keep simple)
     if console_output:
